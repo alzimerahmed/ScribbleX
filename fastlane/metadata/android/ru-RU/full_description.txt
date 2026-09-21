@@ -45,4 +45,4 @@ NotallyX — это минималистичное приложение для �
 
 Из-за ошибки со стороны Xiaomi на некоторых устройствах с MIUI могут быть недоступны опции форматирования текста.
 
-https://github.com/Crustack/NotallyX
+https://github.com/ScribbleX/ScribbleX

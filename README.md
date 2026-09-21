@@ -1,14 +1,14 @@
 <h2 align="center">
     <img src="fastlane/metadata/android/en-US/images/icon.png" alt="icon" width="90"/>
     <br />
-    <b><a href="https://crustack.github.io/NotallyX/">NotallyX | Minimalistic note taking app</a></b>
+    <b><a href="https://crustack.github.io/NotallyX/">ScribbleX | Minimalistic note taking app</a></b>
     <p>
         <center>
-            <a href="https://ko-fi.com/crustack"><img alt='Donate' height='30' src='documentation/static/img/kofi_donate.svg' /></a>
+            Maintainer: Alzimer Ahmed (<a href="mailto:alzimerahmed84@gmail.com">alzimerahmed84@gmail.com</a>)
         </center>
     </p>
     <p>
-    <h1>Due to multiple users experiencing data loss (e.g. https://github.com/Crustack/NotallyX/issues/1066), I temporarily removed the App from the Google Play Store. If you use the app, ensure that you have setup auto-backup (e.g. daily) and ideally also backup on save!</h1>
+    <h1>Data-loss warning (inherited from upstream, see https://github.com/Crustack/NotallyX/issues/1066): if you use the app, ensure that you have setup auto-backup (e.g. daily) and ideally also backup on save!</h1>
     </p>
     <p>
         <center>
@@ -67,14 +67,14 @@ When using the app and an unknown error occurs, causing the app to crash you wil
 
 #### Beta Releases
 
-I occasionally release BETA versions of the app during development, since its very valuable for me to get feedback before publicly releasing a new version.
+BETA versions are occasionally released during development to gather feedback before a public release.
 These BETA releases have another `applicationId` as the release versions, thats why when you install a BETA version it will show up on your device as a separate app called `NotallyX BETA`.
 BETA versions also have their own data, they do not use the data of your NotallyX app
 You can download the most recent BETA release [here on Github](https://github.com/Crustack/NotallyX/releases/tag/beta)
 
 #### APK Signing Certifcate Fingerprint
 
-If you wish to verify your downloaded .apk file, here is the app's certificate SHA256 fingerpint:
+The upstream NotallyX signing certificate SHA256 fingerprint (for reference when verifying APK provenance):
 `D2:14:B6:05:7B:79:F8:25:09:DD:CD:1E:35:19:65:B3:C6:EC:C4:B2:A3:89:6E:5C:DF:88:5A:70:A0:B6:1D:FD`
 
 ### Translations
@@ -93,6 +93,8 @@ Before submitting your proposed changes as a Pull-Request, make sure all tests a
 ### Attribution
 The original Notally project was developed by [OmGodse](https://github.com/OmGodse) under the [GPL 3.0 License](https://github.com/OmGodse/Notally/blob/master/LICENSE.md).
 
-In accordance to GPL 3.0, this project is licensed under the same [GPL 3.0 License](https://github.com/Crustack/NotallyX/blob/main/LICENSE.md).
+NotallyX was developed by [Philkes](https://github.com/Philkes) (maintained under the Crustack organization) under the [GPL 3.0 License](https://github.com/Crustack/NotallyX/blob/main/LICENSE.md).
+
+ScribbleX is a fork of NotallyX. In accordance to GPL 3.0, this project remains licensed under the GPL 3.0 License. Maintainer: Alzimer Ahmed (alzimerahmed84@gmail.com).
 
 

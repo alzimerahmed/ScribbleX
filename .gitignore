@@ -13,3 +13,7 @@ Gemfile*
 *.sh
 !generate-changelogs.sh
 temp
+# Devin prompt system + knowledge layer (private, never pushed)
+.devin/
+docs/
+.switchboard/
