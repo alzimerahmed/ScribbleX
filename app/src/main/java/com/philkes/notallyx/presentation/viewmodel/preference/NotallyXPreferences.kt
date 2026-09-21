@@ -234,6 +234,10 @@ class NotallyXPreferences private constructor(private val context: ContextWrappe
             DEFAULT_EDIT_NOTE_BOTTOM_ACTION,
         )
 
+    /** Opt-in Markdown source editing mode for notes (Phase 7 F4) */
+    val markdownEditMode =
+        BooleanPreference("markdownEditMode", preferences, false, R.string.markdown_edit_mode)
+
     fun getSafeEditNoteActivityTopActions(): List<EditAction> {
         return editNoteActivityTopActions.value.let { actions ->
             if (actions.size != 3) {
@@ -364,6 +368,7 @@ class NotallyXPreferences private constructor(private val context: ContextWrappe
                 autoRemoveDeletedNotesAfterDays,
                 editNoteActivityTopActions,
                 editNoteActivityBottomAction,
+                markdownEditMode,
                 defaultNoteColor,
                 defaultListNoteViewMode,
             )

@@ -391,6 +391,18 @@ class SettingsFragment : Fragment() {
             }
         }
 
+        markdownEditMode.observe(viewLifecycleOwner) { value ->
+            binding.MarkdownEditMode.setup(
+                markdownEditMode,
+                value,
+                requireContext(),
+                layoutInflater,
+                R.string.markdown_edit_mode_hint,
+            ) { newValue ->
+                model.savePreference(markdownEditMode, newValue)
+            }
+        }
+
         autoRemoveDeletedNotesAfterDays.observe(viewLifecycleOwner) { value ->
             binding.AutoEmptyBin.setup(
                 autoRemoveDeletedNotesAfterDays,
