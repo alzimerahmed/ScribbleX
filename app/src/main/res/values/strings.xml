@@ -423,5 +423,9 @@
     <string name="wrong_password">Wrong password provided</string>
     <string name="yearly">Yearly</string>
     <string name="years">Years</string>
+    <string name="markdown_edit_mode">Markdown editing mode</string>
+    <string name="markdown_edit_mode_hint">Edit the note body as Markdown source. Supported: bold, italic, code, strikethrough, links, headers, lists and checklists (round-trip safe).</string>
+    <string name="markdown_mode_enabled">Markdown source editing enabled</string>
+    <string name="markdown_mode_applied">Markdown converted to rich text</string>
     <string name="your_notes_associated">Your notes attached to this label will not be deleted</string>
 </resources>
