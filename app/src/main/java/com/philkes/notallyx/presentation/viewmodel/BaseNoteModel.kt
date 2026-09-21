@@ -25,26 +25,20 @@ import com.philkes.notallyx.data.dao.BaseNoteDao
 import com.philkes.notallyx.data.dao.CommonDao
 import com.philkes.notallyx.data.dao.LabelDao
 import com.philkes.notallyx.data.dao.NoteReminder
-import com.philkes.notallyx.data.dao.moveBaseNotes
-import com.philkes.notallyx.data.imports.ImportException
 import com.philkes.notallyx.data.imports.ImportSource
-import com.philkes.notallyx.data.imports.NotesImporter
-import com.philkes.notallyx.data.model.Attachment
-import com.philkes.notallyx.data.model.Audio
 import com.philkes.notallyx.data.model.BaseNote
 import com.philkes.notallyx.data.model.Content
 import com.philkes.notallyx.data.model.ConverterErrorReporter
-import com.philkes.notallyx.data.model.Converters
-import com.philkes.notallyx.data.model.FileAttachment
 import com.philkes.notallyx.data.model.Folder
 import com.philkes.notallyx.data.model.Header
 import com.philkes.notallyx.data.model.Item
 import com.philkes.notallyx.data.model.Label
 import com.philkes.notallyx.data.model.SearchResult
-import com.philkes.notallyx.data.model.deepCopy
+import com.philkes.notallyx.data.repository.FileAttachmentRepository
+import com.philkes.notallyx.data.repository.RoomLabelRepository
+import com.philkes.notallyx.data.repository.RoomNoteRepository
 import com.philkes.notallyx.presentation.activity.main.fragment.settings.SettingsFragment.Companion.EXTRA_SHOW_IMPORT_BACKUPS_FOLDER
 import com.philkes.notallyx.presentation.activity.note.refreshStatusBarPin
-import com.philkes.notallyx.presentation.exportedText
 import com.philkes.notallyx.presentation.getQuantityString
 import com.philkes.notallyx.presentation.restartApplication
 import com.philkes.notallyx.presentation.setCancelButton
@@ -60,34 +54,28 @@ import com.philkes.notallyx.presentation.viewmodel.preference.NotallyXPreference
 import com.philkes.notallyx.presentation.viewmodel.preference.NotallyXPreferences.Companion.START_VIEW_UNLABELED
 import com.philkes.notallyx.presentation.viewmodel.preference.Theme
 import com.philkes.notallyx.presentation.viewmodel.progress.ExportNotesProgress
+import com.philkes.notallyx.presentation.viewmodel.usecase.BackupUseCase
+import com.philkes.notallyx.presentation.viewmodel.usecase.DatabaseLocationUseCase
+import com.philkes.notallyx.presentation.viewmodel.usecase.NoteOperationsUseCase
 import com.philkes.notallyx.utils.ActionMode
 import com.philkes.notallyx.utils.Cache
 import com.philkes.notallyx.utils.MIME_TYPE_JSON
 import com.philkes.notallyx.utils.backup.FILE_TIMESTAMP_FORMAT
 import com.philkes.notallyx.utils.backup.copyDatabase
-import com.philkes.notallyx.utils.backup.exportAsZip
 import com.philkes.notallyx.utils.backup.exportPdfFile
 import com.philkes.notallyx.utils.backup.exportPdfFileFolder
 import com.philkes.notallyx.utils.backup.exportPlainTextFile
 import com.philkes.notallyx.utils.backup.exportPlainTextFileFolder
-import com.philkes.notallyx.utils.backup.importRawDatabase
-import com.philkes.notallyx.utils.backup.importZip
-import com.philkes.notallyx.utils.backup.readAsBackup
-import com.philkes.notallyx.utils.cancelPinAndReminders
 import com.philkes.notallyx.utils.copyToLarge
-import com.philkes.notallyx.utils.deleteAttachments
-import com.philkes.notallyx.utils.getBackupDir
 import com.philkes.notallyx.utils.getCurrentImagesDirectory
 import com.philkes.notallyx.utils.getExternalBackupsDirectory
 import com.philkes.notallyx.utils.log
-import com.philkes.notallyx.utils.migrateAllAttachments
 import com.philkes.notallyx.utils.security.DecryptionException
 import com.philkes.notallyx.utils.security.EncryptionException
 import com.philkes.notallyx.utils.security.decryptDatabase
 import com.philkes.notallyx.utils.security.encryptDatabase
 import com.philkes.notallyx.utils.security.isEncryptedDatabase
 import com.philkes.notallyx.utils.security.isUnencryptedDatabase
-import com.philkes.notallyx.utils.toMessage
 import com.philkes.notallyx.utils.toReadablePath
 import com.philkes.notallyx.utils.viewFile
 import java.io.File
@@ -105,6 +93,31 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
     private lateinit var labelDao: LabelDao
     private lateinit var commonDao: CommonDao
     private lateinit var baseNoteDao: BaseNoteDao
+
+    // F2: repository seams over the DAOs — fake-able in unit tests
+    private val noteRepository =
+        RoomNoteRepository(contextProvider = { app }, daoProvider = { baseNoteDao })
+    private val labelRepository =
+        RoomLabelRepository(labelDaoProvider = { labelDao }, commonDaoProvider = { commonDao })
+    private val attachmentRepository = FileAttachmentRepository(contextProvider = { app })
+
+    // F2: use-cases extracted from this class — logic moved verbatim, this class delegates.
+    // Lazy because they depend on preferences/progress declared below.
+    private val noteOperations: NoteOperationsUseCase by lazy {
+        NoteOperationsUseCase(
+            app,
+            viewModelScope,
+            noteRepository,
+            attachmentRepository,
+            labelRepository,
+        )
+    }
+    private val backupOperations: BackupUseCase by lazy {
+        BackupUseCase(app, viewModelScope, preferences, labelRepository, progress, importProgress)
+    }
+    private val databaseLocation: DatabaseLocationUseCase by lazy {
+        DatabaseLocationUseCase(app, viewModelScope, preferences, attachmentRepository)
+    }
 
     private val labelCache = HashMap<String, Content>()
 
@@ -262,107 +275,11 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun enableDataInPublic(callback: (() -> Unit)? = null) {
-        viewModelScope.launch {
-            val database =
-                withContext(Dispatchers.Main.immediate) { NotallyDatabase.getDatabase(app) }
-            withContext(Dispatchers.IO) {
-                NotallyDatabase.startReplacement()
-                try {
-                    database.value.checkpoint()
-                    NotallyDatabase.clearInstance()
-                    val targetDirectory = NotallyDatabase.getExternalDatabaseFile(app).parentFile
-                    val internalDatabaseFiles = NotallyDatabase.getInternalDatabaseFiles(app)
-                    internalDatabaseFiles.forEach {
-                        it.copyToLarge(File(targetDirectory, it.name), overwrite = true)
-                    }
-                    val notallyDatabase =
-                        withContext(Dispatchers.Main.immediate) {
-                            NotallyDatabase.getFreshDatabase(
-                                app,
-                                true,
-                                preferences.biometricLock.value,
-                            )
-                        }
-                    val ping =
-                        try {
-                            notallyDatabase.ping()
-                        } catch (e: Exception) {
-                            throw RuntimeException(
-                                "Moving internal '${internalDatabaseFiles.map { it.name }}' to public '$targetDirectory' folder failed",
-                                e,
-                            )
-                        }
-                    if (!ping) {
-                        throw RuntimeException(
-                            "Moving internal '${internalDatabaseFiles.map { it.name }}' to public '$targetDirectory' folder failed"
-                        )
-                    }
-                    app.migrateAllAttachments(toPrivate = false)
-                    preferences.dataInPublicFolder.save(true)
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main.immediate) {
-                        NotallyDatabase.postNewInstance(app, dataInPublic = false)
-                    }
-                    throw e
-                }
-            }
-            withContext(Dispatchers.Main.immediate) {
-                NotallyDatabase.postNewInstance(app, dataInPublic = true)
-            }
-            callback?.invoke()
-        }
+        databaseLocation.enableDataInPublic(callback)
     }
 
     fun disableDataInPublic(callback: (() -> Unit)? = null) {
-        viewModelScope.launch {
-            val database =
-                withContext(Dispatchers.Main.immediate) { NotallyDatabase.getDatabase(app) }
-            withContext(Dispatchers.IO) {
-                NotallyDatabase.startReplacement()
-                try {
-                    database.value.checkpoint()
-                    NotallyDatabase.clearInstance()
-                    val targetDirectory = NotallyDatabase.getInternalDatabaseFile(app).parentFile
-                    val externalDatabaseFiles = NotallyDatabase.getExternalDatabaseFiles(app)
-                    externalDatabaseFiles.forEach {
-                        it.copyToLarge(File(targetDirectory, it.name), overwrite = true)
-                    }
-                    val notallyDatabase =
-                        withContext(Dispatchers.Main.immediate) {
-                            NotallyDatabase.getFreshDatabase(
-                                app,
-                                false,
-                                preferences.biometricLock.value,
-                            )
-                        }
-                    val ping =
-                        try {
-                            notallyDatabase.ping()
-                        } catch (e: Exception) {
-                            throw RuntimeException(
-                                "Moving public '${externalDatabaseFiles.map { it.name }}' to internal '$targetDirectory' folder failed",
-                                e,
-                            )
-                        }
-                    if (!ping) {
-                        throw RuntimeException(
-                            "Moving public '${externalDatabaseFiles.map { it.name }}' to internal '$targetDirectory' folder failed"
-                        )
-                    }
-                    app.migrateAllAttachments(toPrivate = true)
-                    preferences.dataInPublicFolder.save(false)
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main.immediate) {
-                        NotallyDatabase.postNewInstance(app, dataInPublic = true)
-                    }
-                    throw e
-                }
-            }
-            withContext(Dispatchers.Main.immediate) {
-                NotallyDatabase.postNewInstance(app, dataInPublic = false)
-            }
-            callback?.invoke()
-        }
+        databaseLocation.disableDataInPublic(callback)
     }
 
     suspend fun enableBiometricLock(cipher: Cipher) {
@@ -469,90 +386,23 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun exportBackup(uri: Uri, onComplete: (() -> Unit)? = null) {
-        viewModelScope.launch {
-            val exportedNotesAndAttachments =
-                withContext(Dispatchers.IO) {
-                    app.log(TAG, msg = "Exporting backup to '$uri'...")
-                    return@withContext app.exportAsZip(
-                            uri,
-                            password = preferences.backupPassword.value,
-                            backupProgress = progress,
-                        )
-                        .also { app.log(TAG, msg = "Finished exporting backup to '$uri'") }
-                }
-
-            app.showToast(app.exportedText(exportedNotesAndAttachments))
-            onComplete?.invoke()
-        }
+        backupOperations.exportBackup(uri, onComplete)
     }
 
     fun importRawDatabase(uri: Uri, checkDuplicates: Boolean) {
-        val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
-            app.log(TAG, throwable = throwable)
-            app.showToast("${app.getString(R.string.invalid_backup)}: ${throwable.message}")
-        }
-
-        viewModelScope.launch(exceptionHandler) {
-            val importResult =
-                withContext(Dispatchers.IO) {
-                    app.importRawDatabase(uri, checkDuplicates, importProgress)
-                }
-            app.showToast(app.toMessage(importResult))
-        }
+        backupOperations.importRawDatabase(uri, checkDuplicates)
     }
 
     fun importZipBackup(uri: Uri, password: String, checkDuplicates: Boolean) {
-        val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
-            app.log(TAG, throwable = throwable)
-            app.showToast("${app.getString(R.string.invalid_backup)}: ${throwable.message}")
-        }
-
-        val backupDir = app.getBackupDir()
-        viewModelScope.launch(exceptionHandler) {
-            app.importZip(uri, backupDir, password, checkDuplicates, importProgress)
-        }
+        backupOperations.importZipBackup(uri, password, checkDuplicates)
     }
 
     fun importXmlBackup(uri: Uri) {
-        val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
-            app.log(TAG, throwable = throwable)
-            app.showToast("${app.getString(R.string.invalid_backup)}: ${throwable.message}")
-        }
-
-        viewModelScope.launch(exceptionHandler) {
-            val result =
-                withContext(Dispatchers.IO) {
-                    val stream =
-                        requireNotNull(
-                            app.contentResolver.openInputStream(uri),
-                            { "InputStream for '$uri' is null" },
-                        )
-                    val (baseNotes, labels) = stream.readAsBackup()
-                    commonDao.importBackup(baseNotes, labels, 0, false)
-                }
-            app.showToast(app.toMessage(result))
-        }
+        backupOperations.importXmlBackup(uri)
     }
 
     fun importFromOtherApp(uri: Uri, importSource: ImportSource) {
-        val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
-            app.log(TAG, throwable = throwable)
-            if (throwable is ImportException) {
-                app.showToast(throwable.textResId)
-            } else {
-                app.showToast("${app.getString(R.string.invalid_backup)}: ${throwable.message}")
-            }
-        }
-
-        viewModelScope.launch(exceptionHandler) {
-            val database =
-                withContext(Dispatchers.Main.immediate) { NotallyDatabase.getDatabase(app).value }
-            val result =
-                withContext(Dispatchers.IO) {
-                    NotesImporter(app, database).import(uri, importSource, importProgress)
-                }
-            app.showToast(app.toMessage(result))
-        }
+        backupOperations.importFromOtherApp(uri, importSource)
     }
 
     fun exportNoteToFile(fileUri: Uri, note: BaseNote, snackbarView: View) {
@@ -686,18 +536,14 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
     fun pinBaseNotes(pinned: Boolean) {
         val ids = actionMode.selectedIds.toLongArray()
         actionMode.close(true)
-        viewModelScope.launch(Dispatchers.IO) { baseNoteDao.updatePinned(ids, pinned) }
+        noteOperations.pinBaseNotes(ids, pinned)
     }
 
     fun pinBaseNotesToStatusBar(activity: Activity, pinnedToStatusBar: Boolean) {
         val ids = actionMode.selectedIds.toLongArray()
         actionMode.close(true)
         viewModelScope.launch {
-            val updatedNotes =
-                withContext(Dispatchers.IO) {
-                    baseNoteDao.updatePinnedToStatus(ids, pinnedToStatusBar)
-                    baseNoteDao.getByIds(ids)
-                }
+            val updatedNotes = noteOperations.updatePinnedToStatus(ids, pinnedToStatusBar)
             updatedNotes.forEach { activity.refreshStatusBarPin(it) }
         }
     }
@@ -705,7 +551,7 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
     fun colorBaseNote(color: String) {
         val ids = actionMode.selectedIds.toLongArray()
         actionMode.close(true)
-        viewModelScope.launch(Dispatchers.IO) { baseNoteDao.updateColor(ids, color) }
+        noteOperations.colorBaseNote(ids, color)
     }
 
     fun changeColor(oldColor: String, newColor: String) {
@@ -713,7 +559,7 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
         if (oldColor == defaultColor) {
             preferences.defaultNoteColor.save(newColor)
         }
-        viewModelScope.launch(Dispatchers.IO) { baseNoteDao.updateColor(oldColor, newColor) }
+        noteOperations.changeColor(oldColor, newColor)
     }
 
     fun moveBaseNotes(folder: Folder, callable: (() -> Unit)? = null): LongArray {
@@ -726,7 +572,7 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
     fun moveBaseNotes(ids: LongArray, folder: Folder, callable: (() -> Unit)? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                app.moveBaseNotes(baseNoteDao, ids, folder)
+                noteOperations.moveBaseNotes(ids, folder)
             } finally {
                 callable?.invoke()
             }
@@ -735,7 +581,7 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
 
     fun updateBaseNoteLabels(labels: List<String>, id: Long) {
         actionMode.close(true)
-        viewModelScope.launch(Dispatchers.IO) { baseNoteDao.updateLabels(id, labels) }
+        noteOperations.updateBaseNoteLabels(labels, id)
     }
 
     suspend fun deleteSelectedBaseNotes(): Collection<BaseNote> {
@@ -744,72 +590,25 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
 
     fun deleteAll() {
         viewModelScope.launch {
-            val (ids, noteReminders) =
-                withContext(Dispatchers.IO) {
-                    Pair(baseNoteDao.getAllIds().toLongArray(), baseNoteDao.getAllReminders())
-                }
-            noteReminders.forEach { app.cancelPinAndReminders(it.id, it.reminders) }
-            val deletedNotes = deleteBaseNotes(ids)
-            app.deleteAttachments(deletedNotes)
-            withContext(Dispatchers.IO) { labelDao.deleteAll() }
+            noteOperations.deleteAllNotes()
             savePreference(preferences.startView, START_VIEW_DEFAULT)
             app.showToast(R.string.cleared_data)
         }
     }
 
     private suspend fun deleteBaseNotes(ids: LongArray): Collection<BaseNote> {
-        val notes = withContext(Dispatchers.IO) { baseNoteDao.getByIds(ids) }
         actionMode.close(false)
-        app.cancelPinAndReminders(notes)
-        return withContext(Dispatchers.IO) {
-            baseNoteDao.delete(ids)
-            return@withContext notes
-        }
+        return noteOperations.deleteBaseNotes(ids)
     }
 
     fun deleteAllTrashedBaseNotes() {
-        viewModelScope.launch {
-            val ids: LongArray
-            val images = ArrayList<FileAttachment>()
-            val files = ArrayList<FileAttachment>()
-            val audios = ArrayList<Audio>()
-            withContext(Dispatchers.IO) {
-                ids = baseNoteDao.getDeletedNoteIds()
-                val imageStrings = baseNoteDao.getDeletedNoteImages()
-                val fileStrings = baseNoteDao.getDeletedNoteFiles()
-                val audioStrings = baseNoteDao.getDeletedNoteAudios()
-                imageStrings.flatMapTo(images) { json -> Converters.jsonToFiles(json) }
-                fileStrings.flatMapTo(files) { json -> Converters.jsonToFiles(json) }
-                audioStrings.flatMapTo(audios) { json -> Converters.jsonToAudios(json) }
-                baseNoteDao.deleteFrom(Folder.DELETED)
-            }
-            val attachments = ArrayList<Attachment>(images.size + files.size + audios.size)
-            attachments.addAll(images)
-            attachments.addAll(files)
-            attachments.addAll(audios)
-            withContext(Dispatchers.IO) { app.deleteAttachments(attachments, ids) }
-        }
+        viewModelScope.launch { noteOperations.deleteAllTrashedBaseNotes() }
     }
 
     suspend fun duplicateNote(note: BaseNote) = duplicateNotes(listOf(note)).first()
 
     suspend fun duplicateNotes(notes: Collection<BaseNote>): List<Long> {
-        val now = System.currentTimeMillis()
-        val copies: List<BaseNote> =
-            notes.map { original ->
-                original
-                    .deepCopy()
-                    .copy(
-                        id = 0L,
-                        title =
-                            if (original.title.isNotEmpty())
-                                "${original.title} (${app.getString(R.string.copy)})"
-                            else app.getString(R.string.copy),
-                        timestamp = now,
-                        modifiedTimestamp = now,
-                    )
-            }
-        return withContext(Dispatchers.IO) { baseNoteDao.insert(copies) }
+        return noteOperations.duplicateNotes(notes)
     }
 
     fun duplicateSelectedBaseNotes() {
@@ -822,10 +621,10 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    suspend fun getAllLabels() = withContext(Dispatchers.IO) { labelDao.getArrayOfAll() }
+    suspend fun getAllLabels() = withContext(Dispatchers.IO) { labelRepository.getArrayOfAll() }
 
     fun deleteLabel(value: String) {
-        viewModelScope.launch(Dispatchers.IO) { commonDao.deleteLabel(value) }
+        viewModelScope.launch(Dispatchers.IO) { labelRepository.deleteLabel(value) }
         val labelsHiddenPreference = preferences.labelsHidden
         val labelsHidden = labelsHiddenPreference.value.toMutableSet()
         if (labelsHidden.contains(value)) {
@@ -839,16 +638,16 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
 
     fun insertLabel(label: String, onComplete: (success: Boolean) -> Unit) =
         executeAsyncWithCallback(
-            { labelDao.insert(Label(label, (labelDao.getMaxOrder() ?: -1) + 1)) },
+            { labelRepository.insert(Label(label, (labelDao.getMaxOrder() ?: -1) + 1)) },
             onComplete,
         )
 
     fun updateLabels(labels: List<Label>) {
-        viewModelScope.launch(Dispatchers.IO) { labelDao.update(labels) }
+        viewModelScope.launch(Dispatchers.IO) { labelRepository.update(labels) }
     }
 
     fun updateLabel(oldValue: String, newValue: String, onComplete: (success: Boolean) -> Unit) {
-        executeAsyncWithCallback({ commonDao.updateLabel(oldValue, newValue) }, onComplete)
+        executeAsyncWithCallback({ labelRepository.updateLabel(oldValue, newValue) }, onComplete)
         val labelsHiddenPreference = preferences.labelsHidden
         val labelsHidden = labelsHiddenPreference.value.toMutableSet()
         if (labelsHidden.contains(oldValue)) {
@@ -1018,14 +817,12 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     fun saveNotes(notes: List<BaseNote>) {
-        viewModelScope.launch(Dispatchers.IO) { baseNoteDao.insert(notes) }
+        noteOperations.saveNotes(notes)
     }
 
     fun cleanupDatabase(onComplete: () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
-            ConverterErrorReporter.enabled.set(false)
-            val allNotes = baseNoteDao.getAll()
-            baseNoteDao.updateAll(allNotes)
+            noteOperations.cleanupDatabase()
             withContext(Dispatchers.Main) {
                 onComplete()
                 ConverterErrorReporter.enabled.set(true)

@@ -33,6 +33,7 @@ import com.philkes.notallyx.data.model.Type
 import com.philkes.notallyx.data.model.attachmentsDifferFrom
 import com.philkes.notallyx.data.model.copy
 import com.philkes.notallyx.data.model.deepCopy
+import com.philkes.notallyx.data.repository.RoomNoteRepository
 import com.philkes.notallyx.presentation.activity.note.reminders.ReminderReceiver
 import com.philkes.notallyx.presentation.activity.note.reminders.RemindersActivity.Companion.NEW_REMINDER_ID
 import com.philkes.notallyx.presentation.applySpans
@@ -68,6 +69,11 @@ class NotallyModel(private val app: Application) : AndroidViewModel(app) {
 
     private val database = NotallyDatabase.getDatabase(app)
     private lateinit var baseNoteDao: BaseNoteDao
+
+    // F2: repository seam over the DAO � fake-able in unit tests
+    private val noteRepository by lazy {
+        RoomNoteRepository(contextProvider = { app }, daoProvider = { baseNoteDao })
+    }
 
     val preferences = NotallyXPreferences.getInstance(app)
     val textSize: TextSizeSp = preferences.textSizeNoteEditor.value
@@ -231,7 +237,7 @@ class NotallyModel(private val app: Application) : AndroidViewModel(app) {
             isNewNote = false
 
             val cachedNote = Cache.list.find { baseNote -> baseNote.id == id }
-            val baseNote = cachedNote ?: withContext(Dispatchers.IO) { baseNoteDao.get(id) }
+            val baseNote = cachedNote ?: withContext(Dispatchers.IO) { noteRepository.get(id) }
 
             if (baseNote != null) {
                 originalNote = baseNote.deepCopy()
@@ -268,14 +274,14 @@ class NotallyModel(private val app: Application) : AndroidViewModel(app) {
     private suspend fun createBaseNote(createInDb: Boolean = true): BaseNote {
         val baseNote = getBaseNote()
         if (createInDb) {
-            id = withContext(Dispatchers.IO) { baseNoteDao.insertSafe(app, baseNote) }
+            id = withContext(Dispatchers.IO) { noteRepository.insertSafe(app, baseNote) }
         }
         return baseNote.copy(id = id)
     }
 
     suspend fun deleteBaseNote(checkAutoSave: Boolean = true) {
         app.cancelPinAndReminders(id, reminders.value)
-        withContext(Dispatchers.IO) { baseNoteDao.delete(id) }
+        withContext(Dispatchers.IO) { noteRepository.delete(id) }
         WidgetProvider.sendBroadcast(app, longArrayOf(id))
         val attachments = ArrayList(images.value + files.value + audios.value)
         if (attachments.isNotEmpty()) {
@@ -294,7 +300,7 @@ class NotallyModel(private val app: Application) : AndroidViewModel(app) {
     suspend fun saveNote(checkBackupOnSave: Boolean = true): Long {
         return withContext(Dispatchers.IO) {
             val note = getBaseNote()
-            val id = baseNoteDao.insertSafe(app, note)
+            val id = noteRepository.insertSafe(app, note)
             if (checkBackupOnSave) {
                 checkBackupOnSave(note)
             }
@@ -333,15 +339,15 @@ class NotallyModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun updateImages() {
-        withContext(Dispatchers.IO) { baseNoteDao.updateImages(id, images.value) }
+        withContext(Dispatchers.IO) { noteRepository.updateImages(id, images.value) }
     }
 
     private suspend fun updateFiles() {
-        withContext(Dispatchers.IO) { baseNoteDao.updateFiles(id, files.value) }
+        withContext(Dispatchers.IO) { noteRepository.updateFiles(id, files.value) }
     }
 
     private suspend fun updateAudios() {
-        withContext(Dispatchers.IO) { baseNoteDao.updateAudios(id, audios.value) }
+        withContext(Dispatchers.IO) { noteRepository.updateAudios(id, audios.value) }
     }
 
     fun getBaseNote(): BaseNote {
@@ -462,7 +468,7 @@ class NotallyModel(private val app: Application) : AndroidViewModel(app) {
 
     private suspend fun updateReminders(updatedReminders: List<Reminder>) {
         reminders.value = updatedReminders
-        withContext(Dispatchers.IO) { baseNoteDao.updateReminders(id, updatedReminders) }
+        withContext(Dispatchers.IO) { noteRepository.updateReminders(id, updatedReminders) }
     }
 
     suspend fun convertTo(noteType: Type) {
@@ -495,7 +501,7 @@ class NotallyModel(private val app: Application) : AndroidViewModel(app) {
 
     suspend fun refreshOriginalNote() {
         if (id == 0L) return
-        val baseNote = withContext(Dispatchers.IO) { baseNoteDao.get(id) }
+        val baseNote = withContext(Dispatchers.IO) { noteRepository.get(id) }
         if (baseNote == null) return
         originalNote = baseNote.deepCopy()
         reminders.value = baseNote.reminders
