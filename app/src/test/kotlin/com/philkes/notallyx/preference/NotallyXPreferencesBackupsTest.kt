@@ -12,6 +12,7 @@ import com.philkes.notallyx.presentation.viewmodel.preference.BiometricLock
 import com.philkes.notallyx.presentation.viewmodel.preference.NotallyXPreferences
 import com.philkes.notallyx.presentation.viewmodel.preference.PeriodicBackup
 import com.philkes.notallyx.utils.SUBFOLDER_BACKUPS
+import com.philkes.notallyx.utils.backup.OUTPUT_DATA_EXCEPTION
 import com.philkes.notallyx.utils.backup.autoBackupOnSave
 import com.philkes.notallyx.utils.backup.autoBackupOnSaveFileExists
 import com.philkes.notallyx.utils.backup.createBackup
@@ -19,7 +20,9 @@ import com.philkes.notallyx.utils.backup.deleteModifiedNoteBackup
 import com.philkes.notallyx.utils.backup.modifiedNoteBackupExists
 import com.philkes.notallyx.utils.getDocumentFolder
 import com.philkes.notallyx.utils.getExternalBackupsDirectory
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.After
 import org.junit.Before
@@ -103,31 +106,37 @@ class NotallyXPreferencesBackupsTest {
 
     @Test
     fun periodicBackupAndAutoBackupOnSave_workWithDefaultBackupsFolder() {
+        // createBackup runs on a WorkManager background thread in production; mirror that so
+        // the export path never touches Room/file I/O on the main thread.
         runBlocking {
-            val database =
-                NotallyDatabase.getFreshDatabase(application, false, BiometricLock.DISABLED)
-            val noteDao = database.getBaseNoteDao()
-            noteDao.insert(createSampleNote(title = "Test Note", body = "Test Body"))
+            withContext(Dispatchers.IO) {
+                val database =
+                    NotallyDatabase.getFreshDatabase(application, false, BiometricLock.DISABLED)
+                val noteDao = database.getBaseNoteDao()
+                noteDao.insert(createSampleNote(title = "Test Note", body = "Test Body"))
 
-            val backupResult = application.createBackup()
-            assertThat(backupResult).isNotNull
+                val backupResult = application.createBackup()
+                assertThat(backupResult).isNotNull
+                assertThat(backupResult.outputData.getString(OUTPUT_DATA_EXCEPTION)).isNull()
 
-            val backupsFolderFile = application.getExternalBackupsDirectory()
-            val createdFiles =
-                backupsFolderFile.listFiles()?.filter { it.name.endsWith(".zip") } ?: emptyList()
-            assertThat(createdFiles).isNotEmpty
+                val backupsFolderFile = application.getExternalBackupsDirectory()
+                val createdFiles =
+                    backupsFolderFile.listFiles()?.filter { it.name.endsWith(".zip") }
+                        ?: emptyList()
+                assertThat(createdFiles).isNotEmpty
 
-            val note = noteDao.getAll().first()
-            application.autoBackupOnSave(preferences.backupsFolder.value, "", note)
+                val note = noteDao.getAll().first()
+                application.autoBackupOnSave(preferences.backupsFolder.value, "", note)
 
-            assertThat(application.autoBackupOnSaveFileExists(preferences.backupsFolder.value))
-                .isTrue()
-            assertThat(application.modifiedNoteBackupExists(preferences.backupsFolder.value))
-                .isTrue()
+                assertThat(application.autoBackupOnSaveFileExists(preferences.backupsFolder.value))
+                    .isTrue()
+                assertThat(application.modifiedNoteBackupExists(preferences.backupsFolder.value))
+                    .isTrue()
 
-            application.deleteModifiedNoteBackup(preferences.backupsFolder.value)
-            assertThat(application.modifiedNoteBackupExists(preferences.backupsFolder.value))
-                .isFalse()
+                application.deleteModifiedNoteBackup(preferences.backupsFolder.value)
+                assertThat(application.modifiedNoteBackupExists(preferences.backupsFolder.value))
+                    .isFalse()
+            }
         }
     }
 }

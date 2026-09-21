@@ -8,6 +8,7 @@ import androidx.core.net.toUri
 import androidx.preference.PreferenceManager
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.philkes.notallyx.NotallyXApplication.Companion.isTestRunner
 import com.philkes.notallyx.R
 import com.philkes.notallyx.data.model.BaseNote
 import com.philkes.notallyx.data.model.Type
@@ -23,13 +24,18 @@ class NotallyXPreferences private constructor(private val context: ContextWrappe
     private val preferences = PreferenceManager.getDefaultSharedPreferences(context)
 
     private val encryptedPreferences by lazy {
-        EncryptedSharedPreferences.create(
-            context,
-            "secret_shared_prefs",
-            MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
+        if (isTestRunner()) {
+            // Robolectric has no AndroidKeyStore; fall back to plain prefs under test
+            context.getSharedPreferences("secret_shared_prefs", Context.MODE_PRIVATE)
+        } else {
+            EncryptedSharedPreferences.create(
+                context,
+                "secret_shared_prefs",
+                MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        }
     }
 
     val theme = createEnumPreference(preferences, "theme", Theme.FOLLOW_SYSTEM, R.string.theme)
