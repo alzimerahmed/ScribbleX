@@ -20,6 +20,11 @@ import java.util.Date
 private const val TAG = "ReminderExtensions"
 
 fun Context.scheduleReminder(noteId: Long, reminder: Reminder, forceRepetition: Boolean = false) {
+    val location = reminder.location
+    if (location != null) {
+        scheduleLocationReminder(noteId, reminder.id, location)
+        return
+    }
     val now = Date()
     if (forceRepetition || reminder.dateTime.before(now)) {
         reminder.repetition?.let {
@@ -81,6 +86,7 @@ fun Array<StatusBarNotification>.noneExceptFor(noteId: Long, reminderId: Long) =
 
 fun Context.cancelReminder(noteId: Long, reminderId: Long) {
     Log.d(TAG, "cancelReminder: noteId: $noteId reminderId: $reminderId")
+    cancelLocationReminder(noteId, reminderId)
     val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
     val pendingIntent = createReminderAlarmIntent(noteId, reminderId)
     alarmManager.cancel(pendingIntent)

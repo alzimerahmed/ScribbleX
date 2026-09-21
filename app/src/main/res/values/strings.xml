@@ -328,6 +328,22 @@
     <string name="reimport_database_failed">Reimporting Database failed</string>
     <string name="reimport_database_message">You can now try to reimport the raw database. This deletes the current corrupted database (a backup will be stored in \'Android/media/com.philkes.notallyx/logs\') and then tries to import the raw database by skipping corrupted notes if possible</string>
     <string name="reminder_no_repetition">No repetition</string>
+    <string name="add_location_reminder">Add Location Reminder</string>
+    <string name="default_reminder_radius" translatable="false">200</string>
+    <string name="location_reminder">Location reminder</string>
+    <string name="latitude">Latitude</string>
+    <string name="longitude">Longitude</string>
+    <string name="radius_meters">Radius (meters)</string>
+    <string name="label_optional">Label (optional)</string>
+    <string name="use_current_location">Use current location</string>
+    <string name="location_reminder_no_repetition">Fires when entering the area</string>
+    <string name="location_reminder_coordinates">Location: %1$s, %2$s</string>
+    <string name="location_reminder_radius">Radius: %1$s m</string>
+    <string name="invalid_coordinates">Please enter valid latitude (-90 to 90) and longitude (-180 to 180)</string>
+    <string name="location_permission_needed">Location permission is required for location reminders</string>
+    <string name="background_location_needed">Please allow location access \u201call the time\u201d for location reminders to work in the background</string>
+    <string name="acquiring_current_location">Acquiring current location\u2026</string>
+    <string name="location_unavailable">Could not determine current location</string>
     <string name="reminders">Reminders</string>
     <string name="remove_link">Remove Link</string>
     <string name="repetition">Repetition</string>

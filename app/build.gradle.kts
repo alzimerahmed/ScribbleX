@@ -266,7 +266,18 @@ tasks.register<KtfmtFormatTask>("ktfmtPrecommit") {
 
 tasks.register<Copy>("installLocalGitHooks") {
     val scriptsDir = File(rootProject.rootDir, ".scripts/")
-    val hooksDir = File(rootProject.rootDir, ".git/hooks")
+    // Resolve the real .git directory: in git worktrees .git is a file pointing at the gitdir.
+    val gitDirProvider = providers.exec {
+        commandLine("git", "rev-parse", "--absolute-git-dir")
+        workingDir(rootProject.rootDir)
+        isIgnoreExitValue = true
+    }
+    val gitDir =
+        gitDirProvider.standardOutput.asText
+            .orElse(rootProject.rootDir.resolve(".git").absolutePath)
+            .get()
+            .trim()
+    val hooksDir = File(gitDir, "hooks")
     from(scriptsDir) {
         include("pre-commit", "pre-commit.bat")
     }

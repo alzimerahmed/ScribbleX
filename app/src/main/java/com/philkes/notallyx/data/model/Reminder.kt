@@ -10,7 +10,30 @@ data class Reminder(
     var dateTime: Date,
     var repetition: Repetition?,
     var isNotificationVisible: Boolean = false,
+    /**
+     * If set, this reminder is a location-based reminder that fires when the device enters the
+     * given radius around [LocationReminder.latitude]/[LocationReminder.longitude]. [dateTime] is
+     * ignored for location reminders.
+     */
+    var location: LocationReminder? = null,
 ) : Parcelable
+
+@Parcelize
+data class LocationReminder(
+    var latitude: Double,
+    var longitude: Double,
+    /** Radius in meters. */
+    var radius: Float,
+    var label: String? = null,
+) : Parcelable {
+    companion object {
+        const val MIN_RADIUS_METERS = 50f
+        const val MAX_RADIUS_METERS = 10_000f
+
+        fun clampRadius(radius: Float): Float =
+            radius.coerceIn(MIN_RADIUS_METERS, MAX_RADIUS_METERS)
+    }
+}
 
 @Parcelize
 data class Repetition(
