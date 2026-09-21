@@ -298,10 +298,11 @@ abstract class NotallyDatabase : RoomDatabase() {
             val columnName = column.replace("`", "")
             val cursor = db.query("PRAGMA table_info(`$tableName`)")
             val existing = mutableSetOf<String>()
-            while (cursor.moveToNext()) {
-                existing.add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
+            cursor.use {
+                while (it.moveToNext()) {
+                    existing.add(it.getString(it.getColumnIndexOrThrow("name")))
+                }
             }
-            cursor.close()
             if (columnName in existing) {
                 return false
             }
@@ -340,16 +341,15 @@ abstract class NotallyDatabase : RoomDatabase() {
         object Migration6 : Migration(5, 6) {
 
             override fun migrate(db: SupportSQLiteDatabase) {
-                if (
-                    addColumnIfMissing(
-                        db,
-                        "BaseNote",
-                        "modifiedTimestamp",
-                        "INTEGER NOT NULL DEFAULT 0",
-                    )
-                ) {
-                    db.execSQL("UPDATE BaseNote SET modifiedTimestamp = timestamp")
-                }
+                addColumnIfMissing(
+                    db,
+                    "BaseNote",
+                    "modifiedTimestamp",
+                    "INTEGER NOT NULL DEFAULT 0",
+                )
+                // Unconditional: repairs rows corrupted by the historic DEFAULT 'timestamp' bug
+                // and backfills fresh columns; idempotent either way.
+                db.execSQL("UPDATE BaseNote SET modifiedTimestamp = timestamp")
             }
         }
 

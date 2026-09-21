@@ -69,7 +69,7 @@ class NotallyDatabaseMigrationTest {
                     while (cursor.moveToNext()) {
                         val colorString = cursor.getString(0)
                         // DEFAULT is a valid stored value and must survive; named colors become
-                        // #AARRGGBB
+                        // #RRGGBB
                         if (colorString == "DEFAULT") {
                             assertThat(colorString).isEqualTo("DEFAULT")
                         } else {
@@ -133,6 +133,53 @@ class NotallyDatabaseMigrationTest {
             }
     }
 
+    /**
+     * A database that already carries `modifiedTimestamp` (as the drifted v5 schema export
+     * produces) must not crash Migration 6's ALTER, and the backfill must still run so rows
+     * corrupted by the historic DEFAULT 'timestamp' bug are repaired.
+     */
+    @Test
+    fun migrate5To6_isIdempotentWhenColumnAlreadyExists() {
+        helper.createDatabase(DB_NAME, 5).use { db ->
+            // The drifted v5 schema export already contains modifiedTimestamp
+            seedNote(db, version = 5, timestamp = 42L)
+        }
+
+        val openHelper =
+            androidx.sqlite.db.framework
+                .FrameworkSQLiteOpenHelperFactory()
+                .create(
+                    androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(
+                            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+                                .targetContext
+                        )
+                        .name(DB_NAME)
+                        .callback(
+                            object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(5) {
+                                override fun onCreate(
+                                    db: androidx.sqlite.db.SupportSQLiteDatabase
+                                ) {}
+
+                                override fun onUpgrade(
+                                    db: androidx.sqlite.db.SupportSQLiteDatabase,
+                                    oldVersion: Int,
+                                    newVersion: Int,
+                                ) {}
+                            }
+                        )
+                        .build()
+                )
+        openHelper.writableDatabase.use { supportDb ->
+            NotallyDatabase.Companion.Migration6.migrate(supportDb)
+            supportDb.query("SELECT timestamp, modifiedTimestamp FROM BaseNote").use { cursor ->
+                assertThat(cursor.moveToFirst()).isTrue()
+                assertThat(cursor.getLong(0)).isEqualTo(42L)
+                assertThat(cursor.getLong(1)).isEqualTo(42L)
+            }
+        }
+        openHelper.close()
+    }
+
     /** The full upgrade path any long-standing user takes. Nothing may be lost or corrupted. */
     @Test
     fun migrateAllVersions_1To11_preservesNotesAndBackfills() {
@@ -183,7 +230,6 @@ class NotallyDatabaseMigrationTest {
                         assertThat(cursor.getString(9)).isEqualTo("EDIT")
                         assertThat(cursor.getInt(10)).isEqualTo(0)
                         // Migration 6 backfills modifiedTimestamp from timestamp
-                        assertThat(cursor.getLong(10)).isEqualTo(0)
                         assertThat(cursor.getLong(11)).isEqualTo(7L)
                     }
                 db.query("SELECT value, `order` FROM Label ORDER BY `order`").use { cursor ->
