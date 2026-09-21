@@ -45,13 +45,23 @@ android {
         arg("room.generateKotlin", "true")
         arg("room.schemaLocation", "$projectDir/schemas")
     }
+    sourceSets {
+        // Expose exported Room schemas to Robolectric unit tests for MigrationTestHelper
+        // (debug-only: Robolectric reads the debug merged assets, release is unaffected)
+        getByName("debug") {
+            assets.srcDir("$projectDir/schemas")
+        }
+    }
 
     signingConfigs {
         create("release") {
-            storeFile = file(providers.gradleProperty("RELEASE_STORE_FILE").get())
-            storePassword = providers.gradleProperty("RELEASE_STORE_PASSWORD").get()
-            keyAlias = providers.gradleProperty("RELEASE_KEY_ALIAS").get()
-            keyPassword = providers.gradleProperty("RELEASE_KEY_PASSWORD").get()
+            val storeFile = providers.gradleProperty("RELEASE_STORE_FILE").orNull
+            if (storeFile != null) {
+                this@create.storeFile = file(storeFile)
+                storePassword = providers.gradleProperty("RELEASE_STORE_PASSWORD").get()
+                keyAlias = providers.gradleProperty("RELEASE_KEY_ALIAS").get()
+                keyPassword = providers.gradleProperty("RELEASE_KEY_PASSWORD").get()
+            }
         }
     }
 
@@ -358,6 +368,9 @@ dependencies {
     androidTestImplementation("androidx.test:rules:1.7.0")
     androidTestUtil("androidx.test:orchestrator:1.5.0")
     testImplementation("androidx.arch.core:core-testing:2.2.0")
+    testImplementation("androidx.room:room-testing:$roomVersion")
+    testImplementation("app.cash.turbine:turbine:1.2.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("androidx.test:core-ktx:1.6.1")
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("io.mockk:mockk:1.13.12")

@@ -283,51 +283,80 @@ abstract class NotallyDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Idempotent ALTER TABLE ADD COLUMN: some shipped schema exports drifted from the migration
+         * history, so an upgrading database may already carry the column. Skipping the ALTER (and
+         * any backfill tied to it) is always safe; re-running it is a crash.
+         */
+        private fun addColumnIfMissing(
+            db: SupportSQLiteDatabase,
+            table: String,
+            column: String,
+            definition: String,
+        ): Boolean {
+            val tableName = table.replace("`", "")
+            val columnName = column.replace("`", "")
+            val cursor = db.query("PRAGMA table_info(`$tableName`)")
+            val existing = mutableSetOf<String>()
+            while (cursor.moveToNext()) {
+                existing.add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
+            }
+            cursor.close()
+            if (columnName in existing) {
+                return false
+            }
+            db.execSQL("ALTER TABLE `$table` ADD COLUMN $column $definition")
+            return true
+        }
+
         object Migration2 : Migration(1, 2) {
 
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    "ALTER TABLE `BaseNote` ADD COLUMN `color` TEXT NOT NULL DEFAULT 'DEFAULT'"
-                )
+                addColumnIfMissing(db, "BaseNote", "color", "TEXT NOT NULL DEFAULT 'DEFAULT'")
             }
         }
 
         object Migration3 : Migration(2, 3) {
 
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE `BaseNote` ADD COLUMN `images` TEXT NOT NULL DEFAULT `[]`")
+                addColumnIfMissing(db, "BaseNote", "images", "TEXT NOT NULL DEFAULT '[]'")
             }
         }
 
         object Migration4 : Migration(3, 4) {
 
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE `BaseNote` ADD COLUMN `audios` TEXT NOT NULL DEFAULT `[]`")
+                addColumnIfMissing(db, "BaseNote", "audios", "TEXT NOT NULL DEFAULT '[]'")
             }
         }
 
         object Migration5 : Migration(4, 5) {
 
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE `BaseNote` ADD COLUMN `files` TEXT NOT NULL DEFAULT `[]`")
+                addColumnIfMissing(db, "BaseNote", "files", "TEXT NOT NULL DEFAULT '[]'")
             }
         }
 
         object Migration6 : Migration(5, 6) {
 
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    "ALTER TABLE `BaseNote` ADD COLUMN `modifiedTimestamp` INTEGER NOT NULL DEFAULT 'timestamp'"
-                )
+                if (
+                    addColumnIfMissing(
+                        db,
+                        "BaseNote",
+                        "modifiedTimestamp",
+                        "INTEGER NOT NULL DEFAULT 0",
+                    )
+                ) {
+                    db.execSQL("UPDATE BaseNote SET modifiedTimestamp = timestamp")
+                }
             }
         }
 
         object Migration7 : Migration(6, 7) {
 
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    "ALTER TABLE `BaseNote` ADD COLUMN `reminders` TEXT NOT NULL DEFAULT `[]`"
-                )
+                addColumnIfMissing(db, "BaseNote", "reminders", "TEXT NOT NULL DEFAULT '[]'")
             }
         }
 
@@ -348,8 +377,11 @@ abstract class NotallyDatabase : RoomDatabase() {
         object Migration9 : Migration(8, 9) {
 
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    "ALTER TABLE `BaseNote` ADD COLUMN `viewMode` TEXT NOT NULL DEFAULT '${NoteViewMode.EDIT.name}'"
+                addColumnIfMissing(
+                    db,
+                    "BaseNote",
+                    "viewMode",
+                    "TEXT NOT NULL DEFAULT '${NoteViewMode.EDIT.name}'",
                 )
             }
         }
@@ -357,16 +389,14 @@ abstract class NotallyDatabase : RoomDatabase() {
         object Migration10 : Migration(9, 10) {
 
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    "ALTER TABLE `BaseNote` ADD COLUMN `isPinnedToStatus` INTEGER NOT NULL DEFAULT 0"
-                )
+                addColumnIfMissing(db, "BaseNote", "isPinnedToStatus", "INTEGER NOT NULL DEFAULT 0")
             }
         }
 
         object Migration11 : Migration(10, 11) {
 
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE `Label` ADD COLUMN `order` INTEGER NOT NULL DEFAULT 0")
+                addColumnIfMissing(db, "Label", "`order`", "INTEGER NOT NULL DEFAULT 0")
                 val cursor = db.query("SELECT value FROM Label ORDER BY value DESC")
                 var order = 0
                 while (cursor.moveToNext()) {
