@@ -131,6 +131,18 @@
       android:contentDescription="Background"
       app:tint="?attr/colorPrimary" />
 
+    <TextView
+      android:id="@+id/NoResultsText"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_marginTop="12dp"
+      android:visibility="gone"
+      android:textAppearance="?attr/textAppearanceBodyMedium"
+      app:layout_constraintTop_toBottomOf="@id/ImageView"
+      app:layout_constraintStart_toStartOf="parent"
+      app:layout_constraintEnd_toEndOf="parent"
+      android:text="@string/no_results" />
+
     <com.google.android.material.progressindicator.CircularProgressIndicator
         android:id="@+id/LoadingProgress"
         android:layout_width="wrap_content"

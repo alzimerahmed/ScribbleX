@@ -49,6 +49,8 @@ class SearchFragment : NotallyFragment() {
         getObservable().observe(viewLifecycleOwner) { items ->
             model.actionMode.updateSelected(items?.filterIsInstance<BaseNote>()?.map { it.id })
             notesAdapter?.setSearchKeyword(model.keyword)
+            binding?.NoResultsText?.isVisible =
+                model.keyword.isNotBlank() && items?.isEmpty() == true
         }
         model.searchResults?.isLoading?.observe(viewLifecycleOwner) { isLoading ->
             binding?.ImageView?.isVisible = !isLoading && model.searchResults.isEmpty

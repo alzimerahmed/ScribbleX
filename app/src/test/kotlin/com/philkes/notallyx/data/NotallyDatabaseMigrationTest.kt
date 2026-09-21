@@ -220,6 +220,64 @@ class NotallyDatabaseMigrationTest {
             }
     }
 
+    @Test
+    fun migrate11To12_createsFtsIndexAndBackfillsContent() {
+        helper.createDatabase(DB_NAME, 11).use { db ->
+            seedNote(db, version = 10, timestamp = 1L, withViewMode = true)
+            db.execSQL(
+                "UPDATE BaseNote SET title = 'grocery list', body = 'milk and honey' WHERE id = 1"
+            )
+        }
+
+        helper
+            .runMigrationsAndValidate(DB_NAME, 12, true, NotallyDatabase.Companion.Migration12)
+            .use { db ->
+                // Index backfilled from existing content
+                db.query("SELECT COUNT(*) FROM NoteFts").use { cursor ->
+                    assertThat(cursor.moveToFirst()).isTrue()
+                    assertThat(cursor.getInt(0)).isEqualTo(1)
+                }
+                db.query("SELECT title FROM NoteFts WHERE NoteFts MATCH 'grocery'").use { cursor ->
+                    assertThat(cursor.moveToFirst()).isTrue()
+                    assertThat(cursor.getString(0)).isEqualTo("grocery list")
+                }
+                // Sync triggers keep the index current after the migration
+                db.execSQL(
+                    "INSERT INTO BaseNote (type, folder, color, title, pinned, timestamp, modifiedTimestamp, images, audios, files, reminders, labels, body, spans, items, viewMode, isPinnedToStatus) " +
+                        "VALUES ('NOTE', 'NOTES', 'DEFAULT', 'post-migration note', 0, 1, 1, '[]', '[]', '[]', '[]', '[]', 'zebra body', '[]', '[]', 'EDIT', 0)"
+                )
+                db.query("SELECT docid FROM NoteFts WHERE NoteFts MATCH 'zebra'").use { cursor ->
+                    assertThat(cursor.moveToFirst()).isTrue()
+                }
+                // No user rows touched
+                db.query("SELECT COUNT(*) FROM BaseNote").use { cursor ->
+                    assertThat(cursor.moveToFirst()).isTrue()
+                    assertThat(cursor.getInt(0)).isEqualTo(2)
+                }
+            }
+    }
+
+    /** Re-running the migration (crash-recovery scenario) must not crash or duplicate content. */
+    @Test
+    fun migrate12_isIdempotent() {
+        helper.createDatabase(DB_NAME, 11).use { db ->
+            seedNote(db, version = 10, timestamp = 1L, withViewMode = true)
+        }
+
+        runBareMigrationAndAssert(11) { supportDb ->
+            NotallyDatabase.Companion.Migration12.migrate(supportDb)
+            NotallyDatabase.Companion.Migration12.migrate(supportDb)
+            supportDb.query("SELECT COUNT(*) FROM NoteFts").use { cursor ->
+                assertThat(cursor.moveToFirst()).isTrue()
+                assertThat(cursor.getInt(0)).isEqualTo(1)
+            }
+            supportDb.query("SELECT COUNT(*) FROM BaseNote").use { cursor ->
+                assertThat(cursor.moveToFirst()).isTrue()
+                assertThat(cursor.getInt(0)).isEqualTo(1)
+            }
+        }
+    }
+
     /**
      * A database that already carries `modifiedTimestamp` (as the drifted v5 schema export
      * produces) must not crash Migration 6's ALTER, and the backfill must still run so rows
@@ -244,7 +302,7 @@ class NotallyDatabaseMigrationTest {
 
     /** The full upgrade path any long-standing user takes. Nothing may be lost or corrupted. */
     @Test
-    fun migrateAllVersions_1To11_preservesNotesAndBackfills() {
+    fun migrateAllVersions_1To12_preservesNotesAndBackfills() {
         helper.createDatabase(DB_NAME, 1).use { db ->
             db.execSQL(
                 "INSERT INTO BaseNote (type, folder, title, pinned, timestamp, labels, body, spans, items) " +
@@ -257,7 +315,7 @@ class NotallyDatabaseMigrationTest {
         helper
             .runMigrationsAndValidate(
                 DB_NAME,
-                11,
+                12,
                 true,
                 NotallyDatabase.Companion.Migration2,
                 NotallyDatabase.Companion.Migration3,
@@ -269,6 +327,7 @@ class NotallyDatabaseMigrationTest {
                 NotallyDatabase.Companion.Migration9,
                 NotallyDatabase.Companion.Migration10,
                 NotallyDatabase.Companion.Migration11,
+                NotallyDatabase.Companion.Migration12,
             )
             .use { db ->
                 db.query(
@@ -300,6 +359,11 @@ class NotallyDatabaseMigrationTest {
                         ordered.add(cursor.getString(0) to cursor.getInt(1))
                     }
                     assertThat(ordered).containsExactly("Zeta" to 0, "Alpha" to 1)
+                    // Migration 12 backfilled the FTS index from surviving content
+                    db.query("SELECT docid FROM NoteFts WHERE NoteFts MATCH 'survivor'").use {
+                        cursor ->
+                        assertThat(cursor.moveToFirst()).isTrue()
+                    }
                 }
             }
     }
