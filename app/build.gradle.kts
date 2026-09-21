@@ -46,6 +46,11 @@ android {
         arg("room.generateKotlin", "true")
         arg("room.schemaLocation", "$projectDir/schemas")
     }
+    lint {
+        // Upstream has ~170 pre-existing lint errors; baseline records them so CI only
+        // fails on NEW lint issues. Regenerate intentionally with `./gradlew lint`.
+        baseline = file("lint-baseline.xml")
+    }
     sourceSets {
         // Expose exported Room schemas to Robolectric unit tests for MigrationTestHelper
         // (debug-only: Robolectric reads the debug merged assets, release is unaffected)
