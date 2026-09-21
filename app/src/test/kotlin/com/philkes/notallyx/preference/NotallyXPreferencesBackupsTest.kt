@@ -20,9 +20,7 @@ import com.philkes.notallyx.utils.backup.deleteModifiedNoteBackup
 import com.philkes.notallyx.utils.backup.modifiedNoteBackupExists
 import com.philkes.notallyx.utils.getDocumentFolder
 import com.philkes.notallyx.utils.getExternalBackupsDirectory
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.After
 import org.junit.Before
@@ -106,37 +104,46 @@ class NotallyXPreferencesBackupsTest {
 
     @Test
     fun periodicBackupAndAutoBackupOnSave_workWithDefaultBackupsFolder() {
-        // createBackup runs on a WorkManager background thread in production; mirror that so
-        // the export path never touches Room/file I/O on the main thread.
         runBlocking {
-            withContext(Dispatchers.IO) {
-                val database =
-                    NotallyDatabase.getFreshDatabase(application, false, BiometricLock.DISABLED)
-                val noteDao = database.getBaseNoteDao()
-                noteDao.insert(createSampleNote(title = "Test Note", body = "Test Body"))
+            val database =
+                NotallyDatabase.getFreshDatabase(application, false, BiometricLock.DISABLED)
+            val noteDao = database.getBaseNoteDao()
+            noteDao.insert(createSampleNote(title = "Test Note", body = "Test Body"))
 
-                val backupResult = application.createBackup()
-                assertThat(backupResult).isNotNull
-                assertThat(backupResult.outputData.getString(OUTPUT_DATA_EXCEPTION)).isNull()
+            // The export path resolves the database through the NotallyDatabase singleton and
+            // hops to Dispatchers.Main.immediate inside copyDatabase — under Robolectric the
+            // test must stay on the main thread (posting to the paused main looper from a
+            // blocked runBlocking deadlocks), and checkpoint() needs a main-thread-safe
+            // instance, so publish one like BackupRestoreRegressionTest does.
+            val fileDatabase =
+                NotallyDatabase.builder(application, false).allowMainThreadQueries().build()
+            fileDatabase.openHelper.writableDatabase
+            NotallyDatabase.postInstance(fileDatabase)
 
-                val backupsFolderFile = application.getExternalBackupsDirectory()
-                val createdFiles =
-                    backupsFolderFile.listFiles()?.filter { it.name.endsWith(".zip") }
-                        ?: emptyList()
-                assertThat(createdFiles).isNotEmpty
+            val backupResult = application.createBackup()
+            assertThat(backupResult).isNotNull
+            assertThat(backupResult.outputData.getString(OUTPUT_DATA_EXCEPTION)).isNull()
 
-                val note = noteDao.getAll().first()
-                application.autoBackupOnSave(preferences.backupsFolder.value, "", note)
+            val backupsFolderFile = application.getExternalBackupsDirectory()
+            val createdFiles =
+                backupsFolderFile.listFiles()?.filter { it.name.endsWith(".zip") } ?: emptyList()
+            assertThat(createdFiles).isNotEmpty
 
-                assertThat(application.autoBackupOnSaveFileExists(preferences.backupsFolder.value))
-                    .isTrue()
-                assertThat(application.modifiedNoteBackupExists(preferences.backupsFolder.value))
-                    .isTrue()
+            val note = noteDao.getAll().first()
+            application.autoBackupOnSave(
+                preferences.backupsFolder.value,
+                preferences.backupPassword.value,
+                note,
+            )
 
-                application.deleteModifiedNoteBackup(preferences.backupsFolder.value)
-                assertThat(application.modifiedNoteBackupExists(preferences.backupsFolder.value))
-                    .isFalse()
-            }
+            assertThat(application.autoBackupOnSaveFileExists(preferences.backupsFolder.value))
+                .isTrue()
+            assertThat(application.modifiedNoteBackupExists(preferences.backupsFolder.value))
+                .isTrue()
+
+            application.deleteModifiedNoteBackup(preferences.backupsFolder.value)
+            assertThat(application.modifiedNoteBackupExists(preferences.backupsFolder.value))
+                .isFalse()
         }
     }
 }

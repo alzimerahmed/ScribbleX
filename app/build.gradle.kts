@@ -3,6 +3,7 @@ import com.android.build.gradle.tasks.PackageAndroidArtifact
 import com.ncorti.ktfmt.gradle.tasks.KtfmtFormatTask
 import org.apache.commons.configuration2.PropertiesConfiguration
 import org.apache.commons.configuration2.io.FileHandler
+import java.time.Duration
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -224,6 +225,11 @@ android {
             }
         }
     }
+}
+
+tasks.withType<Test>().configureEach {
+    // Bound the whole test task so a hung worker fails instead of stalling CI
+    timeout.set(Duration.ofMinutes(20))
 }
 
 ktfmt {

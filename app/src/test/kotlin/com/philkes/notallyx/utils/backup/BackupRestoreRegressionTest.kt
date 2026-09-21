@@ -1,6 +1,7 @@
 package com.philkes.notallyx.utils.backup
 
 import android.app.Application
+import android.content.ContextWrapper
 import android.net.Uri
 import android.os.Environment
 import androidx.test.core.app.ApplicationProvider
@@ -15,13 +16,20 @@ import com.philkes.notallyx.data.model.Type
 import com.philkes.notallyx.presentation.viewmodel.preference.NotallyXPreferences
 import com.philkes.notallyx.presentation.viewmodel.preference.PeriodicBackup
 import com.philkes.notallyx.test.databaseFiles
-import com.philkes.notallyx.test.destroySqliteHeaderMagic
 import com.philkes.notallyx.utils.ZipVerificationException
 import com.philkes.notallyx.utils.getDocumentFolder
 import com.philkes.notallyx.utils.listZipFiles
 import com.philkes.notallyx.utils.verify
+import io.mockk.coEvery
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import net.lingala.zip4j.ZipFile
 import net.lingala.zip4j.model.ZipParameters
 import net.lingala.zip4j.model.enums.EncryptionMethod
@@ -50,6 +58,11 @@ import org.robolectric.shadows.ShadowLog
     shadows = [com.philkes.notallyx.data.ShadowContextImplMedia::class],
 )
 @SQLiteMode(SQLiteMode.Mode.NATIVE)
+// Production code hops to Dispatchers.Main.immediate from background dispatchers
+// (copyDatabase/import); under Robolectric's paused main looper those posts never
+// drain while the test thread is parked in runBlocking -> deadlock. An unconfined
+// test dispatcher executes the Main hops eagerly on the calling thread instead.
+@OptIn(ExperimentalCoroutinesApi::class)
 class BackupRestoreRegressionTest {
 
     private lateinit var application: Application
@@ -63,6 +76,7 @@ class BackupRestoreRegressionTest {
 
     @Before
     fun setUp() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
         application = ApplicationProvider.getApplicationContext()
         ShadowLog.clear()
         ShadowLog.stream = System.out
@@ -76,6 +90,7 @@ class BackupRestoreRegressionTest {
 
     @After
     fun tearDown() {
+        Dispatchers.resetMain()
         database?.let { if (it.isOpen) it.close() }
         database = null
         NotallyDatabase.clearInstance()
@@ -356,25 +371,29 @@ class BackupRestoreRegressionTest {
         existing.writeText("valid older backup")
         existing.setLastModified(1_000L)
 
-        // Force the export to fail AFTER the backup file is created: close the singleton
-        // and corrupt the database file, so the recreated instance fails to open and
-        // exportAsZip -> copyDatabase -> checkpoint() throws (a realistic #1066 path).
-        database!!.close()
-        databaseFile.destroySqliteHeaderMagic()
+        // Force the export to fail AFTER the backup file is created: stub exportAsZip to
+        // throw, so createBackup's catch must delete the partial file it just created.
+        mockkStatic("com.philkes.notallyx.utils.backup.ExportExtensionsKt")
+        coEvery { any<ContextWrapper>().exportAsZip(any(), any(), any(), any()) } throws
+            RuntimeException("injected export failure")
 
-        val result = runBlocking { application.createBackup() }
+        try {
+            val result = runBlocking { application.createBackup() }
 
-        assertThat(result).isNotNull
-        // The partial backup created by the failed attempt must be gone (any size)
-        val leftovers =
-            backupDir
-                .listFiles()
-                .orEmpty()
-                .filter { it.name.startsWith("NotallyX_Backup_") && it.name.endsWith(".zip") }
-                .filter { it.name != existing.name }
-        assertThat(leftovers).isEmpty()
-        // Pre-existing valid backup must not have been touched by retention/cleanup
-        assertThat(existing).exists()
+            assertThat(result).isNotNull
+            // The partial backup created by the failed attempt must be gone (any size)
+            val leftovers =
+                backupDir
+                    .listFiles()
+                    .orEmpty()
+                    .filter { it.name.startsWith("NotallyX_Backup_") && it.name.endsWith(".zip") }
+                    .filter { it.name != existing.name }
+            assertThat(leftovers).isEmpty()
+            // Pre-existing valid backup must not have been touched by retention/cleanup
+            assertThat(existing).exists()
+        } finally {
+            unmockkStatic("com.philkes.notallyx.utils.backup.ExportExtensionsKt")
+        }
     }
 
     @Test

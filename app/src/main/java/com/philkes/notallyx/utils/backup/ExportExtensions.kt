@@ -1039,15 +1039,20 @@ private fun ContextWrapper.tryPostErrorNotification(e: Throwable) {
             manager.notify(NOTIFICATION_ID, notificationBuilder.build())
         }
     }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-        if (
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
-                PackageManager.PERMISSION_GRANTED
-        ) {
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                    PackageManager.PERMISSION_GRANTED
+            ) {
+                postErrorNotification(e)
+            }
+        } else {
             postErrorNotification(e)
         }
-    } else {
-        postErrorNotification(e)
+    } catch (notificationError: Exception) {
+        // Error reporting must never throw — a crash here would mask the real error
+        Log.e(TAG, "Posting error notification failed", notificationError)
     }
 }
 
