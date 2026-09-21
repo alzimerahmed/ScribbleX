@@ -1,6 +1,7 @@
 package com.philkes.notallyx.presentation.view.main.reminder
 
 import androidx.recyclerview.widget.RecyclerView
+import com.philkes.notallyx.R
 import com.philkes.notallyx.data.model.Reminder
 import com.philkes.notallyx.data.model.toRepetitionText
 import com.philkes.notallyx.databinding.RecyclerReminderBinding
@@ -17,8 +18,24 @@ class ReminderVH(
 
     fun bind(value: Reminder) {
         binding.apply {
-            DateTime.text = value.dateTime.format(dateFormat, timeFormat, ensureFullFormat = true)
-            Repetition.text = value.toRepetitionText(itemView.context)
+            val location = value.location
+            if (location != null) {
+                DateTime.text =
+                    itemView.context.getString(
+                        R.string.location_reminder_coordinates,
+                        location.latitude.toString(),
+                        location.longitude.toString(),
+                    )
+                Repetition.text =
+                    itemView.context.getString(
+                        R.string.location_reminder_radius,
+                        location.radius.toString(),
+                    )
+            } else {
+                DateTime.text =
+                    value.dateTime.format(dateFormat, timeFormat, ensureFullFormat = true)
+                Repetition.text = value.toRepetitionText(itemView.context)
+            }
             EditButton.setOnClickListener { listener.edit(value) }
             DeleteButton.setOnClickListener { listener.delete(value) }
         }

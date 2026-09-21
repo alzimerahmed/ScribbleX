@@ -1,9 +1,15 @@
 package com.philkes.notallyx.presentation.activity.note.reminders
 
+import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationManager
+import android.os.Build
 import android.os.Bundle
 import android.text.Editable
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -13,6 +19,7 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -20,6 +27,7 @@ import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.philkes.notallyx.R
+import com.philkes.notallyx.data.model.LocationReminder
 import com.philkes.notallyx.data.model.Reminder
 import com.philkes.notallyx.data.model.Repetition
 import com.philkes.notallyx.data.model.RepetitionTimeUnit
@@ -27,6 +35,7 @@ import com.philkes.notallyx.data.model.toCalendar
 import com.philkes.notallyx.data.model.toText
 import com.philkes.notallyx.databinding.ActivityRemindersBinding
 import com.philkes.notallyx.databinding.DialogReminderCustomRepetitionBinding
+import com.philkes.notallyx.databinding.DialogReminderLocationBinding
 import com.philkes.notallyx.databinding.DialogReminderRepetitionBinding
 import com.philkes.notallyx.presentation.activity.LockedActivity
 import com.philkes.notallyx.presentation.add
@@ -37,15 +46,24 @@ import com.philkes.notallyx.presentation.getQuantityStringPlain
 import com.philkes.notallyx.presentation.initListView
 import com.philkes.notallyx.presentation.setCancelButton
 import com.philkes.notallyx.presentation.showAndFocus
+import com.philkes.notallyx.presentation.showToast
 import com.philkes.notallyx.presentation.view.main.reminder.ReminderAdapter
 import com.philkes.notallyx.presentation.view.main.reminder.ReminderListener
 import com.philkes.notallyx.presentation.viewmodel.NotallyModel
 import com.philkes.notallyx.utils.canScheduleAlarms
+import com.philkes.notallyx.utils.hasBackgroundLocationPermission
+import com.philkes.notallyx.utils.hasLocationPermission
 import com.philkes.notallyx.utils.now
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.function.Consumer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class RemindersActivity : LockedActivity<ActivityRemindersBinding>(), ReminderListener {
 
@@ -53,6 +71,10 @@ class RemindersActivity : LockedActivity<ActivityRemindersBinding>(), ReminderLi
     private val model: NotallyModel by viewModels()
     private lateinit var reminderAdapter: ReminderAdapter
     private var selectedReminder: Reminder? = null
+    private var selectedLocationReminder: Reminder? = null
+    private lateinit var locationPermissionsLauncher: ActivityResultLauncher<Array<String>>
+    private lateinit var backgroundLocationPermissionLauncher: ActivityResultLauncher<String>
+    private var locationPermissionContinuation: (() -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,6 +83,7 @@ class RemindersActivity : LockedActivity<ActivityRemindersBinding>(), ReminderLi
         configureEdgeToEdgeInsets()
         setupToolbar()
         setupRecyclerView()
+        setupLocationPermissionLaunchers()
 
         alarmPermissionActivityResultLauncher =
             registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -159,6 +182,9 @@ class RemindersActivity : LockedActivity<ActivityRemindersBinding>(), ReminderLi
         binding.Toolbar.apply {
             setNavigationOnClickListener { finish() }
             menu.add(R.string.add_reminder, R.drawable.add) { showDatePickerDialog() }
+            menu.add(R.string.add_location_reminder, R.drawable.add) {
+                checkLocationPermissions { showLocationReminderDialog() }
+            }
         }
     }
 
@@ -179,6 +205,176 @@ class RemindersActivity : LockedActivity<ActivityRemindersBinding>(), ReminderLi
                 binding.EmptyState.visibility = View.VISIBLE
             } else binding.EmptyState.visibility = View.INVISIBLE
         }
+    }
+
+    private fun setupLocationPermissionLaunchers() {
+        locationPermissionsLauncher =
+            registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants
+                ->
+                if (grants.values.all { it }) {
+                    if (
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                            !hasBackgroundLocationPermission()
+                    ) {
+                        backgroundLocationPermissionLauncher.launch(
+                            Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                        )
+                    } else {
+                        locationPermissionContinuation?.invoke()
+                        locationPermissionContinuation = null
+                    }
+                } else {
+                    showToast(getString(R.string.location_permission_needed))
+                }
+            }
+        backgroundLocationPermissionLauncher =
+            registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                if (!granted) {
+                    showToast(getString(R.string.background_location_needed))
+                }
+                locationPermissionContinuation?.invoke()
+                locationPermissionContinuation = null
+            }
+    }
+
+    private fun checkLocationPermissions(onGranted: () -> Unit) {
+        val fineGranted =
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        val coarseGranted =
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        if (fineGranted || coarseGranted) {
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+                    ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                locationPermissionContinuation = onGranted
+                backgroundLocationPermissionLauncher.launch(
+                    Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                )
+            } else {
+                onGranted()
+            }
+        } else {
+            locationPermissionContinuation = onGranted
+            locationPermissionsLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                )
+            )
+        }
+    }
+
+    private fun showLocationReminderDialog(reminder: Reminder? = null) {
+        selectedLocationReminder = reminder
+        val dialogView = DialogReminderLocationBinding.inflate(layoutInflater)
+        reminder?.location?.let { location ->
+            dialogView.Latitude.setText(location.latitude.toString())
+            dialogView.Longitude.setText(location.longitude.toString())
+            dialogView.Radius.setText(location.radius.toInt().toString())
+            dialogView.Label.setText(location.label ?: "")
+        }
+        dialogView.CurrentLocation.setOnClickListener {
+            dialogView.CurrentLocation.isEnabled = false
+            lifecycleScope.launch {
+                val location = withContext(Dispatchers.IO) { getCurrentLocation() }
+                if (location != null) {
+                    dialogView.Latitude.setText("%.6f".format(location.latitude))
+                    dialogView.Longitude.setText("%.6f".format(location.longitude))
+                } else {
+                    showToast(getString(R.string.location_unavailable))
+                }
+                dialogView.CurrentLocation.isEnabled = true
+            }
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (reminder == null) R.string.add_location_reminder else R.string.location_reminder
+            )
+            .setView(dialogView.root)
+            .setPositiveButton(R.string.save) { _, _ ->
+                val latitude = dialogView.Latitude.text.toString().toDoubleOrNull()
+                val longitude = dialogView.Longitude.text.toString().toDoubleOrNull()
+                val radius = dialogView.Radius.text.toString().toFloatOrNull() ?: 200f
+                if (
+                    latitude == null ||
+                        longitude == null ||
+                        latitude < -90 ||
+                        latitude > 90 ||
+                        longitude < -180 ||
+                        longitude > 180
+                ) {
+                    showToast(getString(R.string.invalid_coordinates))
+                    return@setPositiveButton
+                }
+                val location =
+                    LocationReminder(
+                        latitude,
+                        longitude,
+                        LocationReminder.clampRadius(radius),
+                        dialogView.Label.text?.toString()?.takeIf { it.isNotBlank() },
+                    )
+                val updatedReminder =
+                    Reminder(
+                        reminder?.id ?: NEW_REMINDER_ID,
+                        reminder?.dateTime ?: Date(0L),
+                        null,
+                        isNotificationVisible = reminder?.isNotificationVisible ?: false,
+                        location = location,
+                    )
+                lifecycleScope.launch {
+                    if (reminder != null) {
+                        model.updateReminder(updatedReminder)
+                    } else {
+                        model.addReminder(updatedReminder)
+                    }
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    /** FOSS one-shot location fix via AOSP [LocationManager] (no Google Play Services). */
+    private fun getCurrentLocation(): Location? {
+        val locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        if (locationManager == null || !hasLocationPermission()) {
+            return null
+        }
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+        ) {
+            var result: Location? = null
+            val latch = CountDownLatch(1)
+            try {
+                locationManager.getCurrentLocation(
+                    LocationManager.GPS_PROVIDER,
+                    null,
+                    mainExecutor,
+                    object : Consumer<Location> {
+                        override fun accept(value: Location) {
+                            result = value
+                            latch.countDown()
+                        }
+                    },
+                )
+                latch.await(10, TimeUnit.SECONDS)
+            } catch (e: Exception) {
+                Log.w(TAG, "getCurrentLocation failed", e)
+            }
+            if (result != null) {
+                return result
+            }
+        }
+        return locationManager
+            .getProviders(true)
+            .filter { it != LocationManager.PASSIVE_PROVIDER }
+            .firstNotNullOfOrNull { locationManager.getLastKnownLocation(it) }
     }
 
     private fun showDatePickerDialog(reminder: Reminder? = null, calendar: Calendar? = null) {
@@ -466,14 +662,23 @@ class RemindersActivity : LockedActivity<ActivityRemindersBinding>(), ReminderLi
         (!isNullOrEmpty() && toString().toIntOrNull()?.let { it > 0 } ?: false)
 
     private fun confirmDeletion(reminder: Reminder) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.delete_reminder_question)
-            .setMessage(
+        val location = reminder.location
+        val message =
+            if (location != null) {
+                getString(
+                    R.string.location_reminder_coordinates,
+                    location.latitude.toString(),
+                    location.longitude.toString(),
+                ) + "\n" + getString(R.string.location_reminder_radius, location.radius.toString())
+            } else {
                 "${reminder.dateTime.format(
                     preferences.dateFormatNoteView.value,
                     preferences.timeFormatNoteView.value,
                     ensureFullFormat = true,)}\n${reminder.repetition?.toText(this) ?: getString(R.string.reminder_no_repetition)}"
-            )
+            }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.delete_reminder_question)
+            .setMessage(message)
             .setPositiveButton(R.string.delete) { _, _ ->
                 lifecycleScope.launch { model.removeReminder(reminder) }
             }
@@ -486,10 +691,15 @@ class RemindersActivity : LockedActivity<ActivityRemindersBinding>(), ReminderLi
     }
 
     override fun edit(reminder: Reminder) {
-        showDatePickerDialog(reminder)
+        if (reminder.location != null) {
+            checkLocationPermissions { showLocationReminderDialog(reminder) }
+        } else {
+            showDatePickerDialog(reminder)
+        }
     }
 
     companion object {
+        private const val TAG = "RemindersActivity"
         private const val REQUEST_NOTIFICATION_PERMISSION_ON_OPEN_REQUEST_CODE = 101
         private const val REQUEST_NOTIFICATION_PERMISSION_REQUEST_CODE = 102
         const val NOTE_ID = "NOTE_ID"

@@ -26,6 +26,7 @@ import com.philkes.notallyx.utils.PinnedNotificationManager
 import com.philkes.notallyx.utils.canScheduleAlarms
 import com.philkes.notallyx.utils.cancelReminder
 import com.philkes.notallyx.utils.createChannelIfNotExists
+import com.philkes.notallyx.utils.scheduleLocationReminder
 import com.philkes.notallyx.utils.scheduleReminder
 import java.util.Date
 import kotlinx.coroutines.CoroutineScope
@@ -61,6 +62,7 @@ class ReminderReceiver : BroadcastReceiver() {
                         if (canScheduleExactAlarms) {
                             rescheduleAlarms(context)
                         }
+                        restoreGeofences(context)
                         restoreRemindersNotifications(context)
                         restorePinnedNotifications(context)
                     }
@@ -71,6 +73,18 @@ class ReminderReceiver : BroadcastReceiver() {
                             rescheduleAlarms(context)
                         } else {
                             cancelAlarms(context)
+                        }
+                    }
+
+                    intent.action == ACTION_LOCATION_REMINDER -> {
+                        val noteId = intent.getLongExtra(EXTRA_NOTE_ID, -1L)
+                        val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L)
+                        Log.d(
+                            TAG,
+                            "Location reminder entered for noteId: $noteId, reminderId: $reminderId",
+                        )
+                        if (noteId != -1L && reminderId != -1L) {
+                            notify(context, noteId, reminderId, schedule = false)
                         }
                     }
 
@@ -243,6 +257,16 @@ class ReminderReceiver : BroadcastReceiver() {
         }
     }
 
+    private suspend fun restoreGeofences(context: Context) {
+        val database = getDatabase(context)
+        val noteReminders = database.getBaseNoteDao().getAllReminders()
+        noteReminders.forEach { (noteId, reminders) ->
+            reminders.forEach { reminder ->
+                reminder.location?.let { context.scheduleLocationReminder(noteId, reminder.id, it) }
+            }
+        }
+    }
+
     private suspend fun rescheduleAlarms(context: Context) {
         val database = getDatabase(context)
         val now = Date()
@@ -354,6 +378,7 @@ class ReminderReceiver : BroadcastReceiver() {
             "com.philkes.notallyx.ACTION_STATUS_NOTIFICATION_DISMISSED"
         const val ACTION_DELETE_NOTE = "com.philkes.notallyx.ACTION_DELETE_NOTE"
         const val ACTION_UPDATE_NOTIFICATIONS = "com.philkes.notallyx.ACTION_UPDATE_NOTIFICATIONS"
+        const val ACTION_LOCATION_REMINDER = "com.philkes.notallyx.ACTION_LOCATION_REMINDER"
 
         fun reminderNotificationTag(noteId: Long) = "$NOTIFICATION_TAG.$noteId"
 

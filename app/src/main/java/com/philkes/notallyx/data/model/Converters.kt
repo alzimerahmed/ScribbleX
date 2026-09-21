@@ -253,6 +253,7 @@ object Converters {
                     put("dateTime", reminder.dateTime.time) // Store date as long timestamp
                     put("repetition", reminder.repetition?.let { repetitionToJsonObject(it) })
                     put("isNotificationVisible", reminder.isNotificationVisible)
+                    put("location", reminder.location?.let { locationToJsonObject(it) })
                 }
             }
         return JSONArray(objects)
@@ -275,7 +276,32 @@ object Converters {
             val dateTime = Date(jsonObject.getLong("dateTime"))
             val repetition = jsonObject.getSafeString("repetition")?.let { jsonToRepetition(it) }
             val isNotificationVisible = jsonObject.getSafeBoolean("isNotificationVisible")
-            Reminder(id, dateTime, repetition, isNotificationVisible)
+            val location = jsonObject.optJSONObject("location")?.let { jsonToLocation(it) }
+            Reminder(id, dateTime, repetition, isNotificationVisible, location)
+        }
+    }
+
+    fun locationToJsonObject(location: LocationReminder): JSONObject {
+        val jsonObject = JSONObject()
+        jsonObject.put("latitude", location.latitude)
+        jsonObject.put("longitude", location.longitude)
+        jsonObject.put("radius", location.radius.toDouble())
+        location.label?.let { jsonObject.put("label", it) }
+        return jsonObject
+    }
+
+    fun jsonToLocation(jsonObject: JSONObject): LocationReminder? {
+        return try {
+            val latitude = jsonObject.getDouble("latitude")
+            val longitude = jsonObject.getDouble("longitude")
+            val radius = LocationReminder.clampRadius(jsonObject.getLong("radius").toFloat())
+            val label = jsonObject.getSafeString("label")
+            LocationReminder(latitude, longitude, radius, label)
+        } catch (e: Exception) {
+            ConverterErrorReporter.reportError(
+                ConverterException("Failed to convert JSON to Reminder Location", e)
+            )
+            null
         }
     }
 
