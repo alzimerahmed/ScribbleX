@@ -7,12 +7,18 @@ import androidx.test.core.app.ApplicationProvider
 import com.philkes.notallyx.data.NotallyDatabase
 import com.philkes.notallyx.data.NotallyDatabase.Companion.DATABASE_NAME
 import com.philkes.notallyx.data.model.BaseNote
+import com.philkes.notallyx.data.model.FileAttachment
 import com.philkes.notallyx.data.model.Folder
 import com.philkes.notallyx.data.model.Label
 import com.philkes.notallyx.data.model.NoteViewMode
 import com.philkes.notallyx.data.model.Type
+import com.philkes.notallyx.presentation.viewmodel.preference.NotallyXPreferences
+import com.philkes.notallyx.presentation.viewmodel.preference.PeriodicBackup
 import com.philkes.notallyx.test.databaseFiles
+import com.philkes.notallyx.test.destroySqliteHeaderMagic
 import com.philkes.notallyx.utils.ZipVerificationException
+import com.philkes.notallyx.utils.getDocumentFolder
+import com.philkes.notallyx.utils.listZipFiles
 import com.philkes.notallyx.utils.verify
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -63,6 +69,7 @@ class BackupRestoreRegressionTest {
         databaseFile.parentFile?.mkdirs()
         databaseFile.databaseFiles().forEach { it.delete() }
         ShadowEnvironment.setExternalStorageState(Environment.MEDIA_MOUNTED)
+        NotallyXPreferences.clearInstance()
         backupDir.deleteRecursively()
         backupDir.mkdirs()
     }
@@ -71,6 +78,8 @@ class BackupRestoreRegressionTest {
     fun tearDown() {
         database?.let { if (it.isOpen) it.close() }
         database = null
+        NotallyDatabase.clearInstance()
+        NotallyXPreferences.clearInstance()
         databaseFile.databaseFiles().forEach { it.delete() }
         backupDir.deleteRecursively()
     }
@@ -153,6 +162,295 @@ class BackupRestoreRegressionTest {
         val restored = application.readBaseNotes(copiedDb)
         assertThat(restored.baseNotes.map { it.title })
             .containsExactlyInAnyOrder("Note A", "Note B")
+    }
+
+    @Test
+    fun importZip_roundTrip_restoresNotesIntoDatabase() {
+        seedDatabase()
+        installSingletonDatabase()
+        val zipFile = File(backupDir, "roundtrip.zip")
+        runBlocking { application.exportAsZip(Uri.fromFile(zipFile), compress = true) }
+
+        // Import the same backup again with duplicate checking: the restore path must
+        // succeed and must not duplicate existing notes (idempotent restore).
+        runBlocking {
+            application.importZip(
+                Uri.fromFile(zipFile),
+                backupDir,
+                zipPassword = "",
+                checkDuplicates = true,
+            )
+        }
+
+        val database = openDatabase()
+        val notes = runBlocking { database.getBaseNoteDao().getAll() }
+        assertThat(notes.map { it.title }).containsExactlyInAnyOrder("Note A", "Note B")
+    }
+
+    @Test
+    fun importZip_corruptZip_throwsAndLeavesDatabaseUntouched() {
+        seedDatabase()
+        installSingletonDatabase()
+        val notesBefore = currentNoteTitles()
+
+        val corruptZip = File(backupDir, "corrupt.zip").apply { writeText("not a zip file") }
+
+        assertThatThrownBy {
+            runBlocking {
+                application.importZip(
+                    Uri.fromFile(corruptZip),
+                    backupDir,
+                    zipPassword = "",
+                    checkDuplicates = false,
+                )
+            }
+        }
+        assertThat(currentNoteTitles()).containsExactlyInAnyOrderElementsOf(notesBefore)
+        // The staging folder must not keep a half-extracted database behind
+        assertThat(backupDir.listFiles().orEmpty().filter { it.name == DATABASE_NAME }).isEmpty()
+    }
+
+    @Test
+    fun importZip_zipMissingDatabaseEntry_throwsAndLeavesDatabaseUntouched() {
+        seedDatabase()
+        installSingletonDatabase()
+        val notesBefore = currentNoteTitles()
+
+        val textFile = File(backupDir, "other.txt").apply { writeText("hello") }
+        val zipFile = File(backupDir, "missing-db.zip")
+        ZipFile(zipFile).addFile(textFile, ZipParameters().apply { fileNameInZip = "other.txt" })
+
+        assertThatThrownBy {
+            runBlocking {
+                application.importZip(
+                    Uri.fromFile(zipFile),
+                    backupDir,
+                    zipPassword = "",
+                    checkDuplicates = false,
+                )
+            }
+        }
+        assertThat(currentNoteTitles()).containsExactlyInAnyOrderElementsOf(notesBefore)
+    }
+
+    @Test
+    fun importZip_wrongPassword_doesNotThrowAndLeavesDatabaseUntouched() {
+        seedDatabase()
+        installSingletonDatabase()
+        val notesBefore = currentNoteTitles()
+
+        val zipFile = File(backupDir, "encrypted-export.zip")
+        runBlocking {
+            application.exportAsZip(
+                Uri.fromFile(zipFile),
+                compress = true,
+                password = "correct-password",
+            )
+        }
+
+        // Wrong password must fail gracefully (no crash, no partial import)
+        runBlocking {
+            application.importZip(
+                Uri.fromFile(zipFile),
+                backupDir,
+                zipPassword = "wrong-password",
+                checkDuplicates = false,
+            )
+        }
+        assertThat(currentNoteTitles()).containsExactlyInAnyOrderElementsOf(notesBefore)
+    }
+
+    @Test
+    fun importRawDatabase_invalidDatabaseFile_throwsAndCleansUpTempFile() {
+        val garbage = File(backupDir, "garbage.sqlite").apply { writeText("definitely not sqlite") }
+        val tempDbFile = File(application.cacheDir, "${DATABASE_NAME}_IMPORT")
+
+        assertThatThrownBy {
+            runBlocking { application.importRawDatabase(Uri.fromFile(garbage), false) }
+        }
+        assertThat(tempDbFile).doesNotExist()
+    }
+
+    @Test
+    fun createBackup_writesRestorableZip_andRespectsMaxBackupsRetention() {
+        seedDatabase()
+        installSingletonDatabase()
+        val preferences = NotallyXPreferences.getInstance(application)
+        preferences.backupsFolder.save(Uri.fromFile(backupDir).toString())
+        preferences.periodicBackups.save(PeriodicBackup(periodInDays = 1, maxBackups = 2))
+        // Two pre-existing (older) backups: with maxBackups = 2 the oldest must be evicted
+        // once the new backup is created, and the newest valid backups must survive.
+        val older1 = File(backupDir, "NotallyX_Backup_2020-01-01_00_00_00_000.zip")
+        val older2 = File(backupDir, "NotallyX_Backup_2020-01-02_00_00_00_000.zip")
+        older1.apply { writeText("older1") }.setLastModified(1_000L)
+        older2.apply { writeText("older2") }.setLastModified(2_000L)
+
+        val result = runBlocking { application.createBackup() }
+
+        assertThat(result).isNotNull
+        val remaining = backupDir.listFiles()!!.filter { it.name.endsWith(".zip") }
+        val newBackups = remaining.filter { it.name != older1.name && it.name != older2.name }
+        assertThat(older1).doesNotExist()
+        assertThat(remaining).hasSize(2)
+        assertThat(newBackups).hasSize(1)
+        // The newest backup must contain a restorable database
+        val newest = newBackups.single()
+        val extractedDb = File(backupDir, "retention-${NotallyDatabase.DATABASE_NAME}")
+        ZipFile(newest).extractFile(NotallyDatabase.DATABASE_NAME, backupDir.path, extractedDb.name)
+        val restored = application.readBaseNotes(extractedDb)
+        assertThat(restored.corruptedNotes).isEqualTo(0)
+        assertThat(restored.baseNotes.map { it.title })
+            .containsExactlyInAnyOrder("Note A", "Note B")
+    }
+
+    @Test
+    fun listZipFiles_filtersByPrefixAndSortsNewestFirst() {
+        val folder = application.getDocumentFolder(Uri.fromFile(backupDir))!!
+        // listZipFiles sorts by lastModified DESC, so create files oldest-first to match
+        // the asserted order
+        val names =
+            listOf(
+                "NotallyX_Backup_2020-01-01.zip",
+                "NotallyX_Backup_2020-01-02.zip",
+                "NotallyX_Backup_2020-01-03.zip",
+                "Unrelated.zip",
+                "NotallyX_Backup_2020-01-04.txt",
+            )
+        names.forEachIndexed { index, name ->
+            File(backupDir, name).apply { writeText("x") }.setLastModified(1_000L + index)
+        }
+
+        val zipFiles = folder.listZipFiles("NotallyX_Backup_")
+
+        assertThat(zipFiles.map { it.name })
+            .containsExactly(
+                "NotallyX_Backup_2020-01-03.zip",
+                "NotallyX_Backup_2020-01-02.zip",
+                "NotallyX_Backup_2020-01-01.zip",
+            )
+    }
+
+    @Test
+    fun createBackup_invalidBackupFolderPath_reportsExceptionWithoutCrashing() {
+        val preferences = NotallyXPreferences.getInstance(application)
+        // A path that exists but is a FILE, not a folder: requireBackupFolder passes
+        // (exists() == true) but every file operation on it must fail gracefully.
+        val notAFolder = File(backupDir, "plain-file.txt").apply { writeText("not a folder") }
+        preferences.backupsFolder.save(Uri.fromFile(notAFolder).toString())
+
+        val result = runBlocking { application.createBackup() }
+
+        assertThat(result).isNotNull
+        assertThat(result.outputData.getString(OUTPUT_DATA_EXCEPTION)).isNotNull()
+    }
+
+    @Test
+    fun createBackup_failedExport_deletesPartialBackupAndKeepsExistingBackups() {
+        seedDatabase()
+        installSingletonDatabase()
+        val preferences = NotallyXPreferences.getInstance(application)
+        preferences.backupsFolder.save(Uri.fromFile(backupDir).toString())
+        preferences.periodicBackups.save(PeriodicBackup(periodInDays = 1, maxBackups = 3))
+        // A pre-existing valid backup must survive a failed backup attempt untouched
+        val existing = File(backupDir, "NotallyX_Backup_2020-01-01_00_00_00_000.zip")
+        existing.writeText("valid older backup")
+        existing.setLastModified(1_000L)
+
+        // Force the export to fail AFTER the backup file is created: close the singleton
+        // and corrupt the database file, so the recreated instance fails to open and
+        // exportAsZip -> copyDatabase -> checkpoint() throws (a realistic #1066 path).
+        database!!.close()
+        databaseFile.destroySqliteHeaderMagic()
+
+        val result = runBlocking { application.createBackup() }
+
+        assertThat(result).isNotNull
+        // The partial backup created by the failed attempt must be gone (any size)
+        val leftovers =
+            backupDir
+                .listFiles()
+                .orEmpty()
+                .filter { it.name.startsWith("NotallyX_Backup_") && it.name.endsWith(".zip") }
+                .filter { it.name != existing.name }
+        assertThat(leftovers).isEmpty()
+        // Pre-existing valid backup must not have been touched by retention/cleanup
+        assertThat(existing).exists()
+    }
+
+    @Test
+    fun importZip_corruptDatabaseEntry_throwsAndLeavesDatabaseUntouched() {
+        seedDatabase()
+        installSingletonDatabase()
+        val notesBefore = currentNoteTitles()
+
+        val garbageDb = File(backupDir, "garbage.db").apply { writeText("not a database") }
+        val zipFile = File(backupDir, "corrupt-db.zip")
+        ZipFile(zipFile).addFile(garbageDb, ZipParameters().apply { fileNameInZip = DATABASE_NAME })
+
+        assertThatThrownBy {
+            runBlocking {
+                application.importZip(
+                    Uri.fromFile(zipFile),
+                    backupDir,
+                    zipPassword = "",
+                    checkDuplicates = false,
+                )
+            }
+        }
+        assertThat(currentNoteTitles()).containsExactlyInAnyOrderElementsOf(notesBefore)
+    }
+
+    @Test
+    fun importZip_missingAttachmentEntries_stillImportsNotes() {
+        seedDatabase()
+        installSingletonDatabase()
+        // A note referencing an image that is NOT in the backup ZIP
+        val database = openDatabase()
+        runBlocking {
+            database
+                .getBaseNoteDao()
+                .insert(
+                    note("Note With Missing Image")
+                        .copy(
+                            images =
+                                listOf(FileAttachment("missing.png", "missing.png", "image/png"))
+                        )
+                )
+        }
+        database.checkpoint()
+        database.close()
+        this.database = null
+        installSingletonDatabase()
+
+        val fullZip = File(backupDir, "full.zip")
+        runBlocking { application.exportAsZip(Uri.fromFile(fullZip), compress = true) }
+
+        // Build a backup ZIP that contains only the database — the attachment entry is gone
+        val dbOnlyZip = File(backupDir, "db-only.zip")
+        ZipFile(dbOnlyZip).run {
+            val extractedDb = File(backupDir, "extract-${NotallyDatabase.DATABASE_NAME}")
+            ZipFile(fullZip)
+                .extractFile(NotallyDatabase.DATABASE_NAME, backupDir.path, extractedDb.name)
+            addFile(extractedDb, ZipParameters().apply { fileNameInZip = DATABASE_NAME })
+        }
+
+        runBlocking {
+            application.importZip(
+                Uri.fromFile(dbOnlyZip),
+                backupDir,
+                zipPassword = "",
+                checkDuplicates = false,
+            )
+        }
+
+        // The restore path must tolerate missing attachment entries and still import the notes
+        val notes = currentNoteTitles()
+        assertThat(notes).contains("Note A", "Note B", "Note With Missing Image")
+    }
+
+    private fun currentNoteTitles(): List<String> {
+        val database = openDatabase()
+        return runBlocking { database.getBaseNoteDao().getAll().map { it.title } }
     }
 
     private fun seedDatabase() {

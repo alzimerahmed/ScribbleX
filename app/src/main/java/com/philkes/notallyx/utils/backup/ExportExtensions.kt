@@ -129,12 +129,15 @@ suspend fun ContextWrapper.createBackup(): Result {
                     path,
                     "Periodic Backup failed, because auto-backup path '$path' is invalid",
                 ) ?: return@withLock Result.success()
+            var createdBackupFile: DocumentFile? = null
             try {
                 val backupFilePrefix = PERIODIC_BACKUP_FILE_PREFIX
                 val name =
                     "$backupFilePrefix${FILE_TIMESTAMP_FORMAT.format(System.currentTimeMillis())}"
                 log(TAG, msg = "Creating '$uri/$name.zip'...")
-                val zipUri = folder.createFileSafe(MIME_TYPE_ZIP, name, ".zip").uri
+                val backupFile = folder.createFileSafe(MIME_TYPE_ZIP, name, ".zip")
+                createdBackupFile = backupFile
+                val zipUri = backupFile.uri
                 val exportedNotes =
                     app.exportAsZip(zipUri, password = preferences.backupPassword.value)
                 log(TAG, msg = "Exported $exportedNotes notes")
@@ -160,6 +163,25 @@ suspend fun ContextWrapper.createBackup(): Result {
                 )
             } catch (e: Exception) {
                 log(TAG, msg = "Failed creating backup to '$path'", throwable = e)
+                // #1066-class hardening: a failed export must not leave a partial backup
+                // behind — retention (listZipFiles + drop(maxBackups)) sorts by lastModified,
+                // so a leftover file (0-byte or truncated mid-copy) would count as the newest
+                // backup and could evict the last valid one. Delete the file created by this
+                // attempt, whatever its size.
+                try {
+                    createdBackupFile?.let {
+                        // DocumentFile.delete() can return false without throwing (SAF)
+                        if (it.exists() && !it.delete()) {
+                            log(TAG, msg = "Partial backup file could not be deleted: ${it.uri}")
+                        }
+                    }
+                } catch (cleanupError: Exception) {
+                    log(
+                        TAG,
+                        msg = "Deleting failed partial backup file failed",
+                        throwable = cleanupError,
+                    )
+                }
                 tryPostErrorNotification(e)
                 return Result.success(
                     Data.Builder().putString(OUTPUT_DATA_EXCEPTION, e.message).build()
