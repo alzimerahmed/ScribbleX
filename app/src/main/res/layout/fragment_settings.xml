@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -181,6 +182,99 @@
         <include
           android:id="@+id/PeriodicBackupsMax"
           layout="@layout/preference_stepper" />
+
+        <View
+          android:layout_width="match_parent"
+          android:layout_height="1dp"
+          android:background="?android:attr/listDivider" />
+
+        <TextView
+          style="@style/PreferenceHeader"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:text="@string/sync" />
+
+        <include
+          android:id="@+id/SyncEnabled"
+          layout="@layout/preference" />
+
+        <com.google.android.material.textfield.TextInputLayout
+          android:id="@+id/SyncServerUrlLayout"
+          style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:layout_marginStart="16dp"
+          android:layout_marginEnd="16dp"
+          android:hint="@string/sync_server_url">
+
+          <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/SyncServerUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:imeOptions="actionDone"
+            android:inputType="textUri"
+            android:singleLine="true" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+          android:id="@+id/SyncUsernameLayout"
+          style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:layout_marginStart="16dp"
+          android:layout_marginEnd="16dp"
+          android:hint="@string/sync_username">
+
+          <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/SyncUsername"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:imeOptions="actionDone"
+            android:inputType="text" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textfield.TextInputLayout
+          android:id="@+id/SyncPasswordLayout"
+          style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:layout_marginStart="16dp"
+          android:layout_marginEnd="16dp"
+          android:hint="@string/sync_password"
+          app:endIconMode="password_toggle">
+
+          <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/SyncPassword"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:imeOptions="actionDone"
+            android:inputType="textPassword" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <TextView
+          android:id="@+id/SyncCredentialsHint"
+          android:textAppearance="?attr/textAppearanceBodySmall"
+          android:paddingStart="16dp"
+          android:paddingEnd="16dp"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content"
+          android:text="@string/sync_credentials_hint" />
+
+        <com.google.android.material.button.MaterialButton
+          android:id="@+id/SyncNow"
+          android:layout_width="wrap_content"
+          android:layout_height="wrap_content"
+          android:layout_gravity="center_horizontal"
+          android:layout_marginTop="8dp"
+          android:text="@string/sync_now" />
+
+        <TextView
+          android:id="@+id/SyncStatus"
+          android:textAppearance="?attr/textAppearanceBodySmall"
+          android:paddingStart="16dp"
+          android:paddingEnd="16dp"
+          android:layout_width="match_parent"
+          android:layout_height="wrap_content" />
 
         <View
           android:layout_width="match_parent"

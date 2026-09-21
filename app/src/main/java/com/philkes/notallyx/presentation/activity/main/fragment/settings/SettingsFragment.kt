@@ -76,6 +76,8 @@ import com.philkes.notallyx.utils.security.DecryptionException
 import com.philkes.notallyx.utils.security.EncryptionException
 import com.philkes.notallyx.utils.security.showBiometricOrPinPrompt
 import com.philkes.notallyx.utils.showErrorDialog
+import com.philkes.notallyx.utils.sync.schedulePeriodicSync
+import com.philkes.notallyx.utils.sync.scheduleSyncNow
 import com.philkes.notallyx.utils.viewLogs
 import com.philkes.notallyx.utils.wrapWithChooser
 import java.text.SimpleDateFormat
@@ -110,6 +112,7 @@ class SettingsFragment : Fragment() {
             setupContentDensity(binding)
             setupBackup(binding)
             setupAutoBackups(binding)
+            setupSync(binding)
             setupSecurity(binding)
             setupSettings(binding)
         }
@@ -754,6 +757,68 @@ class SettingsFragment : Fragment() {
             enabled = periodicBackupsEnabled,
         ) { newValue: Int ->
             model.savePreference(preference, preference.value.copy(maxBackups = newValue))
+        }
+    }
+
+    private fun NotallyXPreferences.setupSync(binding: FragmentSettingsBinding) {
+        syncEnabled.observe(viewLifecycleOwner) { value ->
+            binding.SyncEnabled.setup(
+                syncEnabled,
+                value,
+                requireContext(),
+                layoutInflater,
+                R.string.sync_enable_hint,
+            ) { newValue ->
+                model.savePreference(syncEnabled, newValue)
+                (requireContext().applicationContext as ContextWrapper).schedulePeriodicSync(
+                    newValue
+                )
+            }
+        }
+
+        binding.SyncServerUrl.setText(syncServerUrl.value)
+        binding.SyncServerUrl.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) {
+                model.savePreference(syncServerUrl, binding.SyncServerUrl.text.toString().trim())
+            }
+        }
+        binding.SyncUsername.setText(syncUsername.value)
+        binding.SyncUsername.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) {
+                model.savePreference(syncUsername, binding.SyncUsername.text.toString().trim())
+            }
+        }
+        // Password lives in EncryptedSharedPreferences; only written, never logged
+        binding.SyncPassword.setText(syncPassword.value)
+        binding.SyncPassword.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) {
+                model.savePreference(
+                    syncPassword,
+                    binding.SyncPassword.text.toString().ifEmpty { PASSWORD_EMPTY },
+                )
+            }
+        }
+
+        fun updateLastSyncLabel() {
+            val last = syncLastExecution.value
+            binding.SyncStatus.text =
+                if (last <= 0) {
+                    getString(R.string.sync_last_execution, getString(R.string.sync_never))
+                } else {
+                    getString(
+                        R.string.sync_last_execution,
+                        SimpleDateFormat.getDateTimeInstance().format(Date(last)),
+                    )
+                }
+        }
+        updateLastSyncLabel()
+        syncLastExecution.observe(viewLifecycleOwner) { updateLastSyncLabel() }
+
+        binding.SyncNow.setOnClickListener {
+            binding.SyncNow.isEnabled = false
+            binding.SyncStatus.text = getString(R.string.sync_running)
+            (requireContext().applicationContext as ContextWrapper).scheduleSyncNow()
+            binding.SyncNow.isEnabled = true
         }
     }
 

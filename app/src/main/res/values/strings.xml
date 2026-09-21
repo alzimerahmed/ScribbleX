@@ -445,4 +445,20 @@
     <string name="markdown_mode_enabled">Markdown source editing enabled</string>
     <string name="markdown_mode_applied">Markdown converted to rich text</string>
     <string name="your_notes_associated">Your notes attached to this label will not be deleted</string>
+    <string name="sync">Sync</string>
+    <string name="sync_enable">Enable self-hosted sync</string>
+    <string name="sync_enable_hint">Sync notes end-to-end encrypted to a WebDAV server (e.g. Nextcloud). A local backup is created before every sync. Attachments are not synced yet; deletions do not propagate yet.</string>
+    <string name="sync_server_url">Server URL (WebDAV)</string>
+    <string name="sync_username">Username</string>
+    <string name="sync_password">Sync password</string>
+    <string name="sync_now">Sync now</string>
+    <string name="sync_last_execution">Last sync: %1$s</string>
+    <string name="sync_never">Never</string>
+    <string name="sync_running">Syncing…</string>
+    <string name="sync_success">Sync finished (%1$d uploaded, %2$d downloaded)</string>
+    <string name="sync_disabled">Sync is disabled</string>
+    <string name="sync_not_configured">Please configure server URL and password</string>
+    <string name="sync_backup_failed">Pre-sync backup failed; sync aborted</string>
+    <string name="sync_failed">Sync failed: %1$s</string>
+    <string name="sync_credentials_hint">Credentials are stored encrypted on this device and never sent anywhere except your server.</string>
 </resources>

@@ -238,6 +238,22 @@ class NotallyXPreferences private constructor(private val context: ContextWrappe
     val markdownEditMode =
         BooleanPreference("markdownEditMode", preferences, false, R.string.markdown_edit_mode)
 
+    // Self-hosted sync MVP (Phase 7 F1). Opt-in, disabled by default; all sync code is inert
+    // unless syncEnabled is true AND server URL + credentials are configured.
+    val syncEnabled = BooleanPreference("syncEnabled", preferences, false, R.string.sync)
+    val syncServerUrl = StringPreference("syncServerUrl", preferences, "", R.string.sync_server_url)
+    val syncUsername = StringPreference("syncUsername", preferences, "", R.string.sync_username)
+    val syncLastExecution = LongPreference("syncLastExecution", preferences, -1L)
+
+    val syncPassword by lazy {
+        StringPreference(
+            "syncPassword",
+            encryptedPreferences,
+            PASSWORD_EMPTY,
+            R.string.sync_password,
+        )
+    }
+
     fun getSafeEditNoteActivityTopActions(): List<EditAction> {
         return editNoteActivityTopActions.value.let { actions ->
             if (actions.size != 3) {
@@ -371,6 +387,11 @@ class NotallyXPreferences private constructor(private val context: ContextWrappe
                 markdownEditMode,
                 defaultNoteColor,
                 defaultListNoteViewMode,
+                syncEnabled,
+                syncServerUrl,
+                syncUsername,
+                syncPassword,
+                syncLastExecution,
             )
             .forEach { it.refresh() }
     }
