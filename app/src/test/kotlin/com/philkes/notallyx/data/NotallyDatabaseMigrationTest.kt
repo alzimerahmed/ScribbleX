@@ -54,6 +54,93 @@ class NotallyDatabaseMigrationTest {
     }
 
     @Test
+    fun migrate2To3_addsImagesColumnWithEmptyArrayDefault() {
+        helper.createDatabase(DB_NAME, 2).use { db ->
+            db.execSQL(
+                "INSERT INTO BaseNote (type, folder, color, title, pinned, timestamp, labels, body, spans, items) " +
+                    "VALUES ('NOTE', 'NOTES', 'DEFAULT', 't', 0, 1, '[]', 'body', '[]', '[]')"
+            )
+        }
+
+        helper
+            .runMigrationsAndValidate(DB_NAME, 3, true, NotallyDatabase.Companion.Migration3)
+            .use { db ->
+                db.query("SELECT images FROM BaseNote").use { cursor ->
+                    assertThat(cursor.moveToFirst()).isTrue()
+                    assertThat(cursor.getString(0)).isEqualTo("[]")
+                }
+            }
+    }
+
+    /**
+     * Migration 4 (audios) cannot be validated against the drifted v4 schema export (it already
+     * contains `files`, which only Migration 5 adds), so the migration is executed directly on a
+     * v3-shaped database and its behavior asserted without schema validation.
+     */
+    @Test
+    fun migrate3To4_addsAudiosColumnWithEmptyArrayDefault() {
+        helper.createDatabase(DB_NAME, 3).use { db ->
+            db.execSQL(
+                "INSERT INTO BaseNote (type, folder, color, title, pinned, timestamp, labels, body, spans, items, images) " +
+                    "VALUES ('NOTE', 'NOTES', 'DEFAULT', 't', 0, 1, '[]', 'body', '[]', '[]', '[]')"
+            )
+        }
+        runBareMigrationAndAssert(3) { supportDb ->
+            NotallyDatabase.Companion.Migration4.migrate(supportDb)
+            supportDb.query("SELECT audios FROM BaseNote").use { cursor ->
+                assertThat(cursor.moveToFirst()).isTrue()
+                assertThat(cursor.getString(0)).isEqualTo("[]")
+            }
+        }
+    }
+
+    /**
+     * Migration 5 (files) cannot be validated against the drifted v5 schema export (it already
+     * contains `modifiedTimestamp`, which only Migration 6 adds); executed directly instead.
+     *
+     * The v4 schema export is itself drifted (already contains `files`), so the real ADD path is
+     * exercised from a genuine v3 database through Migrations 4 and 5 — `files` does not exist
+     * until Migration 5 actually runs.
+     */
+    @Test
+    fun migrate4To5_addsFilesColumnWithEmptyArrayDefault() {
+        helper.createDatabase(DB_NAME, 3).use { db ->
+            db.execSQL(
+                "INSERT INTO BaseNote (type, folder, color, title, pinned, timestamp, labels, body, spans, items, images) " +
+                    "VALUES ('NOTE', 'NOTES', 'DEFAULT', 't', 0, 1, '[]', 'body', '[]', '[]', '[]')"
+            )
+        }
+        runBareMigrationAndAssert(5) { supportDb ->
+            NotallyDatabase.Companion.Migration4.migrate(supportDb)
+            NotallyDatabase.Companion.Migration5.migrate(supportDb)
+            supportDb.query("SELECT files, audios FROM BaseNote").use { cursor ->
+                assertThat(cursor.moveToFirst()).isTrue()
+                assertThat(cursor.getString(0)).isEqualTo("[]")
+                assertThat(cursor.getString(1)).isEqualTo("[]")
+            }
+        }
+    }
+
+    /**
+     * The v6 schema export already contains `reminders` (drift), so a v6 database cannot prove
+     * Migration 7's ALTER actually runs. The real path starts from a v5 database (which lacks
+     * `reminders`) and chains Migrations 6 and 7.
+     */
+    @Test
+    fun migrate6To7_addsRemindersIdempotentlyWhenMissing() {
+        helper.createDatabase(DB_NAME, 5).use { db -> seedNote(db, version = 5, timestamp = 1L) }
+
+        runBareMigrationAndAssert(7) { supportDb ->
+            NotallyDatabase.Companion.Migration6.migrate(supportDb)
+            NotallyDatabase.Companion.Migration7.migrate(supportDb)
+            supportDb.query("SELECT reminders FROM BaseNote").use { cursor ->
+                assertThat(cursor.moveToFirst()).isTrue()
+                assertThat(cursor.getString(0)).isEqualTo("[]")
+            }
+        }
+    }
+
+    @Test
     fun migrate7To8_convertsNamedColorsToHexAndKeepsDefault() {
         helper.createDatabase(DB_NAME, 7).use { db ->
             val insert =
@@ -145,31 +232,7 @@ class NotallyDatabaseMigrationTest {
             seedNote(db, version = 5, timestamp = 42L)
         }
 
-        val openHelper =
-            androidx.sqlite.db.framework
-                .FrameworkSQLiteOpenHelperFactory()
-                .create(
-                    androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(
-                            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
-                                .targetContext
-                        )
-                        .name(DB_NAME)
-                        .callback(
-                            object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(5) {
-                                override fun onCreate(
-                                    db: androidx.sqlite.db.SupportSQLiteDatabase
-                                ) {}
-
-                                override fun onUpgrade(
-                                    db: androidx.sqlite.db.SupportSQLiteDatabase,
-                                    oldVersion: Int,
-                                    newVersion: Int,
-                                ) {}
-                            }
-                        )
-                        .build()
-                )
-        openHelper.writableDatabase.use { supportDb ->
+        runBareMigrationAndAssert(5) { supportDb ->
             NotallyDatabase.Companion.Migration6.migrate(supportDb)
             supportDb.query("SELECT timestamp, modifiedTimestamp FROM BaseNote").use { cursor ->
                 assertThat(cursor.moveToFirst()).isTrue()
@@ -177,7 +240,6 @@ class NotallyDatabaseMigrationTest {
                 assertThat(cursor.getLong(1)).isEqualTo(42L)
             }
         }
-        openHelper.close()
     }
 
     /** The full upgrade path any long-standing user takes. Nothing may be lost or corrupted. */
@@ -240,6 +302,45 @@ class NotallyDatabaseMigrationTest {
                     assertThat(ordered).containsExactly("Zeta" to 0, "Alpha" to 1)
                 }
             }
+    }
+
+    /**
+     * Opens the database with a bare SupportSQLiteOpenHelper (no Room validation — used for
+     * transitions whose target schema export is drifted) and runs [block] against it.
+     */
+    private fun runBareMigrationAndAssert(
+        version: Int,
+        block: (androidx.sqlite.db.SupportSQLiteDatabase) -> Unit,
+    ) {
+        val openHelper =
+            androidx.sqlite.db.framework
+                .FrameworkSQLiteOpenHelperFactory()
+                .create(
+                    androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(
+                            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+                                .targetContext
+                        )
+                        .name(DB_NAME)
+                        .callback(
+                            object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(version) {
+                                override fun onCreate(
+                                    db: androidx.sqlite.db.SupportSQLiteDatabase
+                                ) {}
+
+                                override fun onUpgrade(
+                                    db: androidx.sqlite.db.SupportSQLiteDatabase,
+                                    oldVersion: Int,
+                                    newVersion: Int,
+                                ) {}
+                            }
+                        )
+                        .build()
+                )
+        try {
+            openHelper.writableDatabase.use(block)
+        } finally {
+            openHelper.close()
+        }
     }
 
     /** Inserts one note using only the columns that exist at the given schema version. */
