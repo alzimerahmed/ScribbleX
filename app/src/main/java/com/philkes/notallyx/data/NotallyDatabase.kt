@@ -22,6 +22,7 @@ import com.philkes.notallyx.data.model.BaseNote
 import com.philkes.notallyx.data.model.Color
 import com.philkes.notallyx.data.model.Converters
 import com.philkes.notallyx.data.model.Label
+import com.philkes.notallyx.data.model.NoteFts
 import com.philkes.notallyx.data.model.NoteViewMode
 import com.philkes.notallyx.data.model.toColorString
 import com.philkes.notallyx.presentation.view.misc.NotNullLiveData
@@ -35,7 +36,7 @@ import java.io.File
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @TypeConverters(Converters::class)
-@Database(entities = [BaseNote::class, Label::class], version = 11)
+@Database(entities = [BaseNote::class, Label::class, NoteFts::class], version = 12)
 abstract class NotallyDatabase : RoomDatabase() {
 
     abstract fun getLabelDao(): LabelDao
@@ -205,6 +206,7 @@ abstract class NotallyDatabase : RoomDatabase() {
                     Migration9,
                     Migration10,
                     Migration11,
+                    Migration12,
                 )
 
         @VisibleForTesting
@@ -408,6 +410,44 @@ abstract class NotallyDatabase : RoomDatabase() {
                     order++
                 }
                 cursor.close()
+            }
+        }
+
+        /**
+         * Adds the NoteFts FTS4 external-content index over BaseNote(title, body, items).
+         *
+         * Fully additive and idempotent: the virtual table and sync triggers are created IF NOT
+         * EXISTS, and `INSERT INTO NoteFts(NoteFts) VALUES('rebuild')` (re)populates the index from
+         * the content table without touching any BaseNote/Label row.
+         */
+        object Migration12 : Migration(11, 12) {
+
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS `NoteFts` USING FTS4(`title` TEXT NOT NULL, `body` TEXT NOT NULL, `items` TEXT NOT NULL, content=`BaseNote`)"
+                )
+                createFtsSyncTriggers(db)
+                // Backfills the index from existing rows; safe to re-run at any time.
+                db.execSQL("INSERT INTO NoteFts(`NoteFts`) VALUES('rebuild')")
+            }
+
+            /**
+             * Mirrors the triggers Room generates for @Fts4(contentEntity = BaseNote::class) on
+             * fresh installs — without them an upgraded database's index would silently go stale.
+             */
+            private fun createFtsSyncTriggers(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_NoteFts_BEFORE_UPDATE BEFORE UPDATE ON `BaseNote` BEGIN DELETE FROM `NoteFts` WHERE docid=OLD.`rowid`; END"
+                )
+                db.execSQL(
+                    "CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_NoteFts_BEFORE_DELETE BEFORE DELETE ON `BaseNote` BEGIN DELETE FROM `NoteFts` WHERE docid=OLD.`rowid`; END"
+                )
+                db.execSQL(
+                    "CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_NoteFts_AFTER_UPDATE AFTER UPDATE ON `BaseNote` BEGIN INSERT INTO `NoteFts`(docid, `title`, `body`, `items`) VALUES (NEW.`rowid`, NEW.`title`, NEW.`body`, NEW.`items`); END"
+                )
+                db.execSQL(
+                    "CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_NoteFts_AFTER_INSERT AFTER INSERT ON `BaseNote` BEGIN INSERT INTO `NoteFts`(docid, `title`, `body`, `items`) VALUES (NEW.`rowid`, NEW.`title`, NEW.`body`, NEW.`items`); END"
+                )
             }
         }
     }

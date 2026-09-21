@@ -48,7 +48,7 @@ class SearchResult(
                 } else {
                     _isLoading.value = true
                     baseNoteDao
-                        .getBaseNotesByKeyword(params.keyword, params.folder, params.label)
+                        .searchNotes(params.keyword, params.folder, params.label)
                         .map { transform(it) }
                         .onEach { _isLoading.value = false }
                         .catch {

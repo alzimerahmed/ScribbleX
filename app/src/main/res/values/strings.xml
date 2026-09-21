@@ -352,6 +352,7 @@
     <string name="saved_to_device">Saved to device</string>
     <string name="saved_to_notally">Saved to NotallyX</string>
     <string name="search">Search</string>
+    <string name="no_results">No results</string>
     <string name="security">Security</string>
     <string name="select_all">Select All</string>
     <string name="select_labels">Select labels</string>

@@ -16,13 +16,19 @@ import com.philkes.notallyx.data.model.FileAttachment
 import com.philkes.notallyx.data.model.Folder
 import com.philkes.notallyx.data.model.LabelsInBaseNote
 import com.philkes.notallyx.data.model.ListItem
+import com.philkes.notallyx.data.model.NoteSearchHit
 import com.philkes.notallyx.data.model.Reminder
 import com.philkes.notallyx.data.model.Type
+import com.philkes.notallyx.data.model.rankFtsSearchResults
+import com.philkes.notallyx.data.model.toFtsMatchQuery
 import com.philkes.notallyx.presentation.getQuantityString
 import com.philkes.notallyx.presentation.showToast
 import com.philkes.notallyx.utils.charLimit
 import com.philkes.notallyx.utils.log
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.map
 
 data class NoteIdReminder(val id: Long, val reminders: List<Reminder>)
@@ -338,6 +344,33 @@ interface BaseNoteDao {
         "SELECT * FROM BaseNote WHERE folder = :folder AND labels == '[]' AND (title LIKE '%' || :keyword || '%' OR body LIKE '%' || :keyword || '%' OR items LIKE '%' || :keyword || '%') ORDER BY pinned DESC, timestamp DESC"
     )
     fun getBaseNotesByKeywordUnlabeledImpl(keyword: String, folder: Folder): Flow<List<BaseNote>>
+
+    /**
+     * Full-text search over note titles, bodies and list items, backed by the NoteFts virtual table
+     * with relevance ranking (title hits weigh more than item/body hits). Falls back to the legacy
+     * LIKE search if the FTS query fails for any reason.
+     */
+    fun searchNotes(keyword: String, folder: Folder, label: String?): Flow<List<BaseNote>> {
+        val matchQuery = keyword.toFtsMatchQuery()
+        if (matchQuery == null) {
+            return getBaseNotesByKeyword(keyword, folder, label)
+        }
+        return getBaseNotesByKeywordFts(matchQuery)
+            .combine(getBaseNotesByLabelKeyword(keyword)) { hits, labelMatches ->
+                rankFtsSearchResults(hits, labelMatches, folder, label)
+            }
+            .catch { emitAll(getBaseNotesByKeyword(keyword, folder, label)) }
+    }
+
+    /** FTS matches with raw `offsets()` output used for ranking. */
+    @Query(
+        "SELECT BaseNote.*, offsets(NoteFts) AS offsets FROM BaseNote JOIN NoteFts ON BaseNote.id = NoteFts.docid WHERE NoteFts MATCH :matchQuery"
+    )
+    fun getBaseNotesByKeywordFts(matchQuery: String): Flow<List<NoteSearchHit>>
+
+    /** Notes whose labels (stored as JSON array) contain the keyword — not covered by FTS. */
+    @Query("SELECT * FROM BaseNote WHERE labels LIKE '%' || :keyword || '%'")
+    fun getBaseNotesByLabelKeyword(keyword: String): Flow<List<BaseNote>>
 
     private fun matchesKeyword(baseNote: BaseNote, keyword: String): Boolean {
         if (baseNote.title.contains(keyword, true)) {
