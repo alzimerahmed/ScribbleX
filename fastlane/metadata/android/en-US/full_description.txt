@@ -1,8 +1,8 @@
-NotallyX is a minimalistic note taking app with a simple design and powerful features.
+ScribbleX is a free and open source note taking app with a simple design and powerful features. It is a community fork of NotallyX (which itself forked Notally), released under the GNU GPL v3. There are no ads, no trackers and no proprietary dependencies.
 
 <b>Organization</b>
 
-• Create rich text notes with support for bold, italics, mono space and more
+• Create rich text notes with support for bold, italics, monospace and more
 • Create task lists and order them with subtasks
 • Set reminders with notifications for important notes
 • Complement your notes with any type of file such as pictures, PDFs, etc.
@@ -17,7 +17,6 @@ NotallyX is a minimalistic note taking app with a simple design and powerful fea
 • Lock your notes via Biometric/PIN
 • Configurable auto-backups
 • Create audio notes
-• Adaptive android app icon
 • Support for Lollipop devices and up
 
 <b>Convenience</b>
@@ -29,24 +28,10 @@ NotallyX is a minimalistic note taking app with a simple design and powerful fea
 • Add notes and lists to your home screen with widgets
 • Import from other Notes apps such as Evernote, Google Keep or plain text files
 
-<b>Privacy</b>
+<b>Coming from NotallyX or Notally?</b>
 
-There are no ads, trackers or analytics of any kind. All your notes are stored completely on and never leave your device.
+ScribbleX is installed as a separate app. Export a backup in NotallyX (Settings > Backup) and import it in ScribbleX (Settings > Import) to bring over your notes, labels and attachments.
 
-<b>Optional Permissions</b>
+<b>License</b>
 
-• Show Notifications, Run Foreground Service: To display a notification if a backup fails or if reminders are triggered
-
-• Schedule exact Alarms: To schedule reminder notifications at exact date-times
-
-• Prevent Phone from Sleeping, Run at Startup: Used by the auto backup feature to ensure backups keep happening even if your phone is restarted
-
-• Record audio: when recording an audio note
-
-• Use Biometrics: if Biometric/PIN app lock setting is enabled, to unlock the app
-
-<b>Note</b>
-
-Due to a bug on Xiaomi's part, some MiUI devices might not be able to access the text formatting options.
-
-https://github.com/ScribbleX/ScribbleX
+ScribbleX is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 3 of the License. Source code: https://github.com/shadd/ScribbleX
