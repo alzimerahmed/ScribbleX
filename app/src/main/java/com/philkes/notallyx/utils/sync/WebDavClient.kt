@@ -30,6 +30,14 @@ class WebDavClient(
     private val connectTimeoutMs: Int = 10_000,
     private val readTimeoutMs: Int = 30_000,
 ) {
+    init {
+        // M3: refuse plaintext HTTP endpoints except explicit local/LAN allowances
+        if (!isSecureBaseUrl(baseUrl)) {
+            throw WebDavException(
+                "Insecure WebDAV URL: HTTPS required (http only for localhost/*.local)"
+            )
+        }
+    }
 
     private val authHeader: String
         get() =
@@ -39,13 +47,18 @@ class WebDavClient(
                     Base64.NO_WRAP,
                 )
 
-    /** Uploads [body]. Returns the HTTP status code (201/204 on success). */
+    /** Uploads [body]. Throws [WebDavException] on non-2xx (M2). */
     fun put(path: String, body: ByteArray): Int =
         open("PUT", path).use { connection ->
             connection.doOutput = true
             connection.setFixedLengthStreamingMode(body.size)
             connection.outputStream.use { it.write(body) }
-            connection.responseCode
+            val code = connection.responseCode
+            if (isSuccess(code)) {
+                code
+            } else {
+                throw WebDavException("PUT $path failed", code)
+            }
         }
 
     /** Downloads the resource, or null on 404. Throws [WebDavException] on other errors. */
@@ -58,11 +71,30 @@ class WebDavClient(
             }
         }
 
-    /** Deletes the resource. 404 counts as success (idempotent). */
-    fun delete(path: String): Int = open("DELETE", path).use { it.responseCode }
+    /**
+     * Deletes the resource. 404 counts as success (idempotent). Throws [WebDavException] on other
+     * non-2xx codes (M2) — 401/403 must never look like success.
+     */
+    fun delete(path: String): Int =
+        open("DELETE", path).use {
+            val code = it.responseCode
+            if (code == HttpURLConnection.HTTP_NOT_FOUND || isSuccess(code)) {
+                code
+            } else {
+                throw WebDavException("DELETE $path failed", code)
+            }
+        }
 
-    /** Creates a collection. 405 (already exists) counts as success. */
-    fun mkcol(path: String): Int = open("MKCOL", path).use { it.responseCode }
+    /** Creates a collection. 405 (already exists) counts as success. Throws otherwise (M2). */
+    fun mkcol(path: String): Int =
+        open("MKCOL", path).use {
+            val code = it.responseCode
+            if (code == HTTP_ALREADY_EXISTS || isSuccess(code)) {
+                code
+            } else {
+                throw WebDavException("MKCOL $path failed", code)
+            }
+        }
 
     /** Lists the children of [path] (Depth: 1). */
     fun propfind(path: String): List<WebDavResource> =
@@ -106,6 +138,35 @@ class WebDavClient(
 
     companion object {
         const val WEBDAV_MULTI_STATUS = 207
+
+        // 405 Method Not Allowed: MKCOL on an already-existing collection
+        private const val HTTP_ALREADY_EXISTS = 405
+
+        fun isSuccess(code: Int): Boolean = code in 200..299
+
+        /**
+         * M3: sync servers must use HTTPS. Plain HTTP is accepted only for explicit local/LAN
+         * allowances (localhost, 127.0.0.1, ::1 and `*.local` mDNS names).
+         */
+        fun isSecureBaseUrl(url: String): Boolean {
+            val uri =
+                try {
+                    URI(url.trim())
+                } catch (_: Exception) {
+                    return false
+                }
+            return when (uri.scheme?.lowercase(Locale.US)) {
+                "https" -> true
+                "http" -> {
+                    val host = uri.host?.lowercase(Locale.US) ?: return false
+                    host == "localhost" ||
+                        host == "127.0.0.1" ||
+                        host == "::1" ||
+                        host.endsWith(".local")
+                }
+                else -> false
+            }
+        }
 
         private const val PROPFIND_BODY =
             """<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:getlastmodified/></d:prop></d:propfind>"""
