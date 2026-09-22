@@ -36,7 +36,7 @@ import java.io.File
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @TypeConverters(Converters::class)
-@Database(entities = [BaseNote::class, Label::class, NoteFts::class], version = 12)
+@Database(entities = [BaseNote::class, Label::class, NoteFts::class], version = 13)
 abstract class NotallyDatabase : RoomDatabase() {
 
     abstract fun getLabelDao(): LabelDao
@@ -207,6 +207,7 @@ abstract class NotallyDatabase : RoomDatabase() {
                     Migration10,
                     Migration11,
                     Migration12,
+                    Migration13,
                 )
 
         @VisibleForTesting
@@ -447,6 +448,25 @@ abstract class NotallyDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_NoteFts_AFTER_INSERT AFTER INSERT ON `BaseNote` BEGIN INSERT INTO `NoteFts`(docid, `title`, `body`, `items`) VALUES (NEW.`rowid`, NEW.`title`, NEW.`body`, NEW.`items`); END"
+                )
+            }
+        }
+
+        /**
+         * Phase 8 performance: adds query-shape indices over BaseNote (see [BaseNote] KDoc).
+         *
+         * Fully additive and idempotent: `CREATE INDEX IF NOT EXISTS` only, no table/column
+         * changes, no user data touched. Index names mirror what Room generates for the
+         * updated @Entity, so a migrated database matches a fresh-install schema exactly.
+         */
+        object Migration13 : Migration(12, 13) {
+
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_BaseNote_folder_pinned_timestamp` ON `BaseNote` (`folder`, `pinned`, `timestamp`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_BaseNote_folder_modifiedTimestamp` ON `BaseNote` (`folder`, `modifiedTimestamp`)"
                 )
             }
         }
