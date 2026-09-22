@@ -23,6 +23,8 @@ fun rankFtsSearchResults(
     labelMatches
         .filter { it.folder == folder }
         .forEach { if (it.id !in results) results[it.id] = it }
+    // m7: pre-build the score lookup once instead of an O(n²) firstOrNull scan in the comparator
+    val scoreById = hits.associate { it.note.id to scoreFtsOffsets(it.offsets) }
     return results.values
         .filter { baseNote ->
             when (label) {
@@ -33,11 +35,7 @@ fun rankFtsSearchResults(
         }
         .sortedWith(
             compareByDescending<BaseNote> { it.pinned }
-                .thenByDescending { baseNote ->
-                    hits
-                        .firstOrNull { it.note.id == baseNote.id }
-                        ?.let { hit -> scoreFtsOffsets(hit.offsets) } ?: 0
-                }
+                .thenByDescending { baseNote -> scoreById[baseNote.id] ?: 0 }
                 .thenByDescending { it.modifiedTimestamp }
         )
 }
