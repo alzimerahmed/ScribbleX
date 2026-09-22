@@ -1,6 +1,7 @@
 package com.philkes.notallyx.presentation.activity.note.reminders
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -361,6 +362,7 @@ class RemindersActivity : LockedActivity<ActivityRemindersBinding>(), ReminderLi
     }
 
     /** FOSS one-shot location fix via AOSP [LocationManager] (no Google Play Services). */
+    @SuppressLint("MissingPermission")
     private fun getCurrentLocation(): Location? {
         val locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
         if (locationManager == null || !hasLocationPermission()) {
