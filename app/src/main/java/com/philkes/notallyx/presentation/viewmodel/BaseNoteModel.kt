@@ -424,7 +424,11 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
                                     actionMode.close(true)
                                     val message = app.getQuantityString(R.plurals.exported_notes, 1)
                                     snackbarView.showFileSnackbar(
-                                        app.getString(R.string.exported_notes_to, message, app.toReadablePath(fileUri)),
+                                        app.getString(
+                                            R.string.exported_notes_to,
+                                            message,
+                                            app.toReadablePath(fileUri),
+                                        ),
                                         fileUri,
                                         ExportMimeType.PDF,
                                     )
@@ -447,7 +451,11 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
                     actionMode.close(true)
                     val message = app.getQuantityString(R.plurals.exported_notes, 1)
                     snackbarView.showFileSnackbar(
-                        app.getString(R.string.exported_notes_to, message, app.toReadablePath(fileUri)),
+                        app.getString(
+                            R.string.exported_notes_to,
+                            message,
+                            app.toReadablePath(fileUri),
+                        ),
                         fileUri,
                         selectedExportMimeType,
                     )
@@ -487,7 +495,11 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
                                                 counter.get(),
                                             )
                                         snackbarView.showSnackbar(
-                                            app.getString(R.string.exported_notes_to, message, app.toReadablePath(folderUri))
+                                            app.getString(
+                                                R.string.exported_notes_to,
+                                                message,
+                                                app.toReadablePath(folderUri),
+                                            )
                                         )
                                     }
 
@@ -515,7 +527,13 @@ class BaseNoteModel(private val app: Application) : AndroidViewModel(app) {
                     actionMode.close(true)
                     progress.postValue(ExportNotesProgress(inProgress = false))
                     val message = app.getQuantityString(R.plurals.exported_notes, counter.get())
-                    snackbarView.showSnackbar(app.getString(R.string.exported_notes_to, message, app.toReadablePath(folderUri)))
+                    snackbarView.showSnackbar(
+                        app.getString(
+                            R.string.exported_notes_to,
+                            message,
+                            app.toReadablePath(folderUri),
+                        )
+                    )
                 }
             }
         }
