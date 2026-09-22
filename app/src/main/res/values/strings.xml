@@ -340,7 +340,7 @@
     <string name="use_current_location">Use current location</string>
     <string name="location_reminder_no_repetition">Fires when entering the area</string>
     <string name="location_reminder_coordinates">Location: %1$.5f, %2$.5f</string>
-    <string name="location_reminder_radius">Radius: %1$s m</string>
+    <string name="location_reminder_radius">Radius: %1$.0f m</string>
     <string name="invalid_coordinates">Please enter valid latitude (-90 to 90) and longitude (-180 to 180)</string>
     <string name="location_permission_needed">Location permission is required for location reminders</string>
     <string name="background_location_needed">Please allow location access \u201call the time\u201d for location reminders to work in the background</string>

@@ -27,10 +27,7 @@ class ReminderVH(
                         location.longitude,
                     )
                 Repetition.text =
-                    itemView.context.getString(
-                        R.string.location_reminder_radius,
-                        location.radius.toString(),
-                    )
+                    itemView.context.getString(R.string.location_reminder_radius, location.radius)
             } else {
                 DateTime.text =
                     value.dateTime.format(dateFormat, timeFormat, ensureFullFormat = true)

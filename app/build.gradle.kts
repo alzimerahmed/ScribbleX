@@ -63,6 +63,9 @@ android {
         // Upstream has ~170 pre-existing lint errors; baseline records them so CI only
         // fails on NEW lint issues. Regenerate intentionally with `./gradlew lint`.
         baseline = file("lint-baseline.xml")
+        // Crowd-sourced translations (TRANSLATIONS.md pipeline) fill in new strings
+        // asynchronously — a missing translation must not block the build.
+        disable += "MissingTranslation"
     }
     sourceSets {
         // Expose exported Room schemas to Robolectric unit tests for MigrationTestHelper.
