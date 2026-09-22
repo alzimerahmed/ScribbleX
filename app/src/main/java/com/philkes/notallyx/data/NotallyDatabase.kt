@@ -24,6 +24,7 @@ import com.philkes.notallyx.data.model.Converters
 import com.philkes.notallyx.data.model.Label
 import com.philkes.notallyx.data.model.NoteFts
 import com.philkes.notallyx.data.model.NoteViewMode
+import com.philkes.notallyx.data.model.SyncTombstone
 import com.philkes.notallyx.data.model.toColorString
 import com.philkes.notallyx.presentation.view.misc.NotNullLiveData
 import com.philkes.notallyx.presentation.viewmodel.preference.BiometricLock
@@ -36,7 +37,10 @@ import java.io.File
 import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @TypeConverters(Converters::class)
-@Database(entities = [BaseNote::class, Label::class, NoteFts::class], version = 13)
+@Database(
+    entities = [BaseNote::class, Label::class, NoteFts::class, SyncTombstone::class],
+    version = 14,
+)
 abstract class NotallyDatabase : RoomDatabase() {
 
     abstract fun getLabelDao(): LabelDao
@@ -208,6 +212,7 @@ abstract class NotallyDatabase : RoomDatabase() {
                     Migration11,
                     Migration12,
                     Migration13,
+                    Migration14,
                 )
 
         @VisibleForTesting
@@ -467,6 +472,27 @@ abstract class NotallyDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_BaseNote_folder_modifiedTimestamp` ON `BaseNote` (`folder`, `modifiedTimestamp`)"
+                )
+            }
+        }
+
+        /**
+         * Phase 7 remediation (C1 + C2): sync identity + deletion tombstones.
+         * - `BaseNote.syncId`: nullable UUID column, the global sync identity (local autoincrement
+         *   `id` values collide across devices and caused silent LWW overwrites). Existing rows are
+         *   backfilled lazily by the sync engine at first sync, so the ALTER alone suffices.
+         * - `SyncTombstone`: records permanently deleted notes' syncIds so the sync engine deletes
+         *   the remote file and never re-downloads a tombstoned note (deletion propagation).
+         *
+         * Fully additive and idempotent: `addColumnIfMissing` skips an already-present column and
+         * the table is created `IF NOT EXISTS`. No user data is touched.
+         */
+        object Migration14 : Migration(13, 14) {
+
+            override fun migrate(db: SupportSQLiteDatabase) {
+                addColumnIfMissing(db, "BaseNote", "syncId", "TEXT")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `SyncTombstone` (`syncId` TEXT NOT NULL, `deletedTimestamp` INTEGER NOT NULL, PRIMARY KEY(`syncId`))"
                 )
             }
         }

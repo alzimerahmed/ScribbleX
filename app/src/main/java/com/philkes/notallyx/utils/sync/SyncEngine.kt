@@ -1,15 +1,18 @@
 package com.philkes.notallyx.utils.sync
 
 import android.content.ContextWrapper
+import com.philkes.notallyx.R
 import com.philkes.notallyx.data.NotallyDatabase
 import com.philkes.notallyx.data.model.BaseNote
 import com.philkes.notallyx.data.model.toBaseNote
 import com.philkes.notallyx.data.model.toJson
 import com.philkes.notallyx.data.repository.NoteRepository
 import com.philkes.notallyx.data.repository.RoomNoteRepository
+import com.philkes.notallyx.presentation.viewmodel.preference.Constants.PASSWORD_EMPTY
 import com.philkes.notallyx.presentation.viewmodel.preference.NotallyXPreferences
 import com.philkes.notallyx.utils.backup.createBackup
 import com.philkes.notallyx.utils.log
+import kotlinx.coroutines.delay
 
 /*
  * ============================================================================
@@ -44,15 +47,27 @@ import com.philkes.notallyx.utils.log
  *    only code path touched.
  *
  * 4. OFFLINE-FIRST + LAST-WRITE-WINS (LWW): the local database is always the
- *    working copy; sync never blocks editing. On sync, per note id:
+ *    working copy; sync never blocks editing. On sync, per note:
  *      - remote only  -> download + insert
  *      - local only   -> upload
  *      - both         -> newer `modifiedTimestamp` wins (tie: local wins)
- *    Simplest-correct MVP choice: full-list comparison WITHOUT tombstones.
- *    Deletion propagation is therefore NOT supported in the MVP (a deleted
- *    note re-appears from the server on the next sync). Tombstones were the
- *    alternative but require either a schema change (banned for this phase)
- *    or a separate remote marker file scheme; deferred to a follow-up.
+ *
+ *    4a. SYNC IDENTITY (remediation of review finding C1): the local
+ *    autoincrement `id` is NOT a global key — two devices can generate the
+ *    same id and LWW would silently discard one side. Remote files are keyed
+ *    by a per-note UUID (`note-<syncId>.json`): the UUID lives in the note's
+ *    JSON payload (`BaseNote.syncId`, Room column added by Migration14) and is
+ *    generated lazily at first sync for local notes. The remote payload's `id`
+ *    is NEVER trusted: notes are matched by syncId, and remote notes are
+ *    inserted with `id = 0` so Room autogenerates a collision-free local id.
+ *
+ *    4b. DELETION TOMBSTONES (remediation of review finding C2): permanent
+ *    local deletes record the note's syncId in the SyncTombstone table (see
+ *    NoteRepository.delete* / AutoRemoveDeletedNotesWorker). On sync the
+ *    engine DELETEs remote files for tombstoned syncIds (tombstones are kept
+ *    so the deletion is never undone) and skips downloading remote notes
+ *    whose syncId is tombstoned. Deletions now propagate across devices;
+ *    the earlier "deletions do not propagate" MVP limitation is resolved.
  *
  * 5. BACKUP BEFORE SYNC: before applying ANY remote change, the engine
  *    snapshots a local backup via the existing backup export utilities
@@ -70,19 +85,24 @@ import com.philkes.notallyx.utils.log
  *   story; WebDAV is what self-hosters (Nextcloud) already run.
  * - Full CRDT/3-way merge: massive complexity, no upstream precedent; LWW per
  *   note matches the backup/import semantics users already understand.
- * - Tombstone table in Room: requires schema change (v12 frozen this phase).
+ * - Content-hash sync keys (no schema change): cannot distinguish "new on the
+ *   other device" from "deleted here" without a stable identity, so a Room
+ *   column (Migration14) was chosen after all — additive and idempotent.
  * - Plain (unencrypted) WebDAV: rejected — notes are sensitive; E2E is cheap.
  *
  * CONSEQUENCES
  * ------------
  * + Zero new dependencies; zero impact when disabled.
  * + Server can be any dumb WebDAV share; nothing server-side to deploy.
- * - Deletions do not propagate (MVP limitation, documented in UI strings).
+ * + Deletions propagate via tombstones (SyncTombstone, Migration14).
  * - Attachments (images/files/audio) are not synced in the MVP — only note
  *   content JSON; attachment sync is the first follow-up.
  * - LWW can silently discard the older side of a concurrent edit; the
  *   pre-sync backup snapshot is the recovery path.
  * - Clock skew between devices shifts LWW outcomes; acceptable for MVP.
+ * - Legacy pre-UUID remote files (`note-<numericId>.json`) are adopted by
+ *   payload syncId during pull; the numeric-named file keeps serving until a
+ *   newer local version overwrites it in place.
  * ============================================================================
  */
 
@@ -134,8 +154,16 @@ class SyncEngine(
         val serverUrl = preferences.syncServerUrl.value.trim()
         val username = preferences.syncUsername.value
         val password = preferences.syncPassword.value
-        if (serverUrl.isEmpty() || password.isEmpty()) {
+        // PASSWORD_EMPTY ("None") is the legacy "unset" sentinel (M1) — never use it as a key
+        if (serverUrl.isEmpty() || password.isEmpty() || password == PASSWORD_EMPTY) {
             return SyncResult(SyncResult.Status.NOT_CONFIGURED)
+        }
+        if (!WebDavClient.isSecureBaseUrl(serverUrl)) {
+            // M3: reject plaintext HTTP except explicit LAN allowances
+            return SyncResult(
+                SyncResult.Status.ERROR,
+                message = context.getString(R.string.sync_error_insecure_url),
+            )
         }
 
         // Guardrail: snapshot a local backup BEFORE applying any remote change.
@@ -159,6 +187,7 @@ class SyncEngine(
     }
 
     private suspend fun syncNotes(client: WebDavClient): SyncResult {
+        val tombstoned = noteRepository.getTombstones().map { it.syncId }.toSet()
         val remoteEntries = withRetries { client.propfind(SYNC_ROOT) }
         val remoteByFileName =
             remoteEntries
@@ -166,21 +195,34 @@ class SyncEngine(
                 .filter { it.startsWith(NOTE_FILE_PREFIX) && it.endsWith(NOTE_FILE_SUFFIX) }
                 .toSet()
 
+        // 0. Push deletions: tombstoned notes must be removed from the server (C2). The
+        // tombstone row is kept so the deletion is never resurrected by a later pull.
+        for (syncId in tombstoned) {
+            val fileName = noteFileName(syncId)
+            if (fileName in remoteByFileName) {
+                withRetries { client.delete("$SYNC_ROOT/$fileName") }
+            }
+        }
+
         val localNotes = noteRepository.getAll()
-        val localById = localNotes.associateBy { it.id }
+        val localBySyncId = localNotes.filter { it.syncId != null }.associateBy { it.syncId!! }
         var uploaded = 0
         var downloaded = 0
+        val remoteSyncIds = mutableSetOf<String>()
 
-        // 1. Pull: for every remote note file, compare and merge.
+        // 1. Pull: for every remote note file, compare and merge. Match by payload syncId —
+        // the remote `id` is never trusted (C1).
         for (fileName in remoteByFileName) {
-            val remoteId =
-                fileName
-                    .removePrefix(NOTE_FILE_PREFIX)
-                    .removeSuffix(NOTE_FILE_SUFFIX)
-                    .toLongOrNull() ?: continue
             val payload = withRetries { client.get("$SYNC_ROOT/$fileName") } ?: continue
             val remoteNote = decryptNote(payload) ?: continue
-            val localNote = localById[remoteId]
+            val remoteSyncId = remoteNote.syncId ?: continue
+            if (remoteSyncId in tombstoned) {
+                // Deleted locally on this device: remove the remote copy, keep the tombstone.
+                withRetries { client.delete("$SYNC_ROOT/$fileName") }
+                continue
+            }
+            remoteSyncIds.add(remoteSyncId)
+            val localNote = localBySyncId[remoteSyncId]
             when (
                 mergeLastWriteWins(localNote?.modifiedTimestamp ?: 0L, remoteNote.modifiedTimestamp)
             ) {
@@ -197,20 +239,27 @@ class SyncEngine(
 
                 MergeDecision.TakeRemote -> {
                     if (localNote == null) {
-                        noteRepository.insert(listOf(remoteNote))
+                        // Never trust the remote id: let Room autogenerate (C1)
+                        noteRepository.insert(listOf(remoteNote.copy(id = 0)))
                     } else {
-                        noteRepository.updateAll(listOf(remoteNote))
+                        noteRepository.updateAll(listOf(remoteNote.copy(id = localNote.id)))
                     }
                     downloaded++
                 }
             }
         }
 
-        // 2. Push: local notes with no remote counterpart.
+        // 2. Push: local notes with no remote counterpart. Notes without a syncId get one
+        // generated lazily at first sync and persisted via the repository.
         for (note in localNotes) {
-            val fileName = noteFileName(note.id)
-            if (fileName !in remoteByFileName) {
-                withRetries { client.put("$SYNC_ROOT/$fileName", encryptNote(note)) }
+            var current = note
+            if (current.syncId == null) {
+                current = current.copy(syncId = UUID.randomUUID().toString())
+                noteRepository.updateAll(listOf(current))
+            }
+            if (current.syncId !in remoteSyncIds) {
+                val fileName = noteFileName(current.syncId!!)
+                withRetries { client.put("$SYNC_ROOT/$fileName", encryptNote(current)) }
                 uploaded++
             }
         }
@@ -234,13 +283,20 @@ class SyncEngine(
             null
         }
 
-    private inline fun <T> withRetries(maxAttempts: Int = 2, block: () -> T): T {
+    private suspend fun <T> withRetries(maxAttempts: Int = 2, block: suspend () -> T): T {
         var lastError: Exception? = null
-        repeat(maxAttempts) {
+        repeat(maxAttempts) { attempt ->
             try {
                 return block()
             } catch (e: Exception) {
                 lastError = e
+                // Non-transient client errors must not be retried
+                if (e is WebDavException && (e.statusCode == 401 || e.statusCode == 403)) {
+                    throw e
+                }
+                if (attempt < maxAttempts - 1) {
+                    delay(RETRY_BACKOFF_MS * (attempt + 1))
+                }
             }
         }
         throw lastError!!
@@ -252,8 +308,9 @@ class SyncEngine(
         const val NOTE_FILE_PREFIX = "note-"
         const val NOTE_FILE_SUFFIX = ".json"
         const val OUTPUT_DATA_EXCEPTION = "exception"
+        private const val RETRY_BACKOFF_MS = 250L
 
-        fun noteFileName(noteId: Long) = "$NOTE_FILE_PREFIX$noteId$NOTE_FILE_SUFFIX"
+        fun noteFileName(syncId: String) = "$NOTE_FILE_PREFIX$syncId$NOTE_FILE_SUFFIX"
 
         /** Factory used in production; injectable for tests. */
         fun defaultClientFactory(serverUrl: String, username: String, password: String) =

@@ -339,7 +339,7 @@
     <string name="label_optional">Label (optional)</string>
     <string name="use_current_location">Use current location</string>
     <string name="location_reminder_no_repetition">Fires when entering the area</string>
-    <string name="location_reminder_coordinates">Location: %1$s, %2$s</string>
+    <string name="location_reminder_coordinates">Location: %1$.5f, %2$.5f</string>
     <string name="location_reminder_radius">Radius: %1$s m</string>
     <string name="invalid_coordinates">Please enter valid latitude (-90 to 90) and longitude (-180 to 180)</string>
     <string name="location_permission_needed">Location permission is required for location reminders</string>
@@ -442,14 +442,12 @@
     <string name="wrong_password">Wrong password provided</string>
     <string name="yearly">Yearly</string>
     <string name="years">Years</string>
-    <string name="markdown_edit_mode">Markdown editing mode</string>
-    <string name="markdown_edit_mode_hint">Edit the note body as Markdown source. Supported: bold, italic, code, strikethrough, links, headers, lists and checklists (round-trip safe).</string>
     <string name="markdown_mode_enabled">Markdown source editing enabled</string>
     <string name="markdown_mode_applied">Markdown converted to rich text</string>
     <string name="your_notes_associated">Your notes attached to this label will not be deleted</string>
     <string name="sync">Sync</string>
     <string name="sync_enable">Enable self-hosted sync</string>
-    <string name="sync_enable_hint">Sync notes end-to-end encrypted to a WebDAV server (e.g. Nextcloud). A local backup is created before every sync. Attachments are not synced yet; deletions do not propagate yet.</string>
+    <string name="sync_enable_hint">Sync notes end-to-end encrypted to a WebDAV server (e.g. Nextcloud). A local backup is created before every sync. Attachments are not synced yet; deletions propagate via tombstones (notes deleted on one device are removed from the server and other devices).</string>
     <string name="sync_server_url">Server URL (WebDAV)</string>
     <string name="sync_username">Username</string>
     <string name="sync_password">Sync password</string>
@@ -463,4 +461,8 @@
     <string name="sync_backup_failed">Pre-sync backup failed; sync aborted</string>
     <string name="sync_failed">Sync failed: %1$s</string>
     <string name="sync_credentials_hint">Credentials are stored encrypted on this device and never sent anywhere except your server.</string>
+    <string name="sync_error_insecure_url">Server URL must use HTTPS. Plain HTTP is only allowed for localhost or .local (LAN) addresses.</string>
+    <string name="background_location_settings_title">Background location required</string>
+    <string name="background_location_settings_message">Location reminders need background location to alert you when you arrive or leave a place. Android no longer allows asking directly — please enable location access in the app settings.</string>
+    <string name="background_location_settings_open">Open settings</string>
 </resources>

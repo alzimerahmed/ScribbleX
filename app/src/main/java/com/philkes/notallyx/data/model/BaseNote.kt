@@ -44,6 +44,15 @@ data class BaseNote(
     val reminders: List<Reminder>,
     val viewMode: NoteViewMode,
     val isPinnedToStatus: Boolean,
+
+    /**
+     * Global sync identity (Phase 7 remediation, C1): a UUID generated lazily at first sync and
+     * stable across devices. Local autoincrement `id` values collide between devices, so sync keys
+     * remote files by this UUID (`note-<syncId>.json`) instead of `id`. Nullable because existing
+     * rows are backfilled lazily by the sync engine. Not part of [equals]/[hashCode] (content
+     * equality is unchanged).
+     */
+    val syncId: String? = null,
 ) : Item {
 
     companion object {

@@ -12,6 +12,7 @@ import com.philkes.notallyx.data.model.BaseNote
 import com.philkes.notallyx.data.model.FileAttachment
 import com.philkes.notallyx.data.model.Folder
 import com.philkes.notallyx.data.model.Reminder
+import com.philkes.notallyx.data.model.SyncTombstone
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -64,6 +65,9 @@ interface NoteRepository {
     suspend fun deleteFrom(folder: Folder)
 
     suspend fun updateAll(baseNotes: List<BaseNote>)
+
+    /** Sync deletion markers (C2): syncIds of permanently deleted notes. */
+    suspend fun getTombstones(): List<SyncTombstone>
 
     suspend fun updatePinned(ids: LongArray, pinned: Boolean)
 
@@ -146,13 +150,33 @@ class RoomNoteRepository(
     override suspend fun insertSafe(context: ContextWrapper, baseNote: BaseNote): Long =
         dao.insertSafe(context, baseNote)
 
-    override suspend fun delete(id: Long) = dao.delete(id)
+    // Permanent deletes record a sync tombstone first (C2) so the sync engine propagates the
+    // deletion instead of resurrecting the note from the server on the next sync.
+    override suspend fun delete(id: Long) {
+        recordTombstones(dao.getSyncIds(longArrayOf(id)).filterNotNull())
+        dao.delete(id)
+    }
 
-    override suspend fun delete(ids: LongArray) = dao.delete(ids)
+    override suspend fun delete(ids: LongArray) {
+        recordTombstones(dao.getSyncIds(ids).filterNotNull())
+        dao.delete(ids)
+    }
 
-    override suspend fun deleteFrom(folder: Folder) = dao.deleteFrom(folder)
+    override suspend fun deleteFrom(folder: Folder) {
+        recordTombstones(dao.getSyncIdsInFolder(folder).filterNotNull())
+        dao.deleteFrom(folder)
+    }
+
+    private suspend fun recordTombstones(syncIds: List<String>) {
+        if (syncIds.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            dao.insertTombstones(syncIds.map { SyncTombstone(it, now) })
+        }
+    }
 
     override suspend fun updateAll(baseNotes: List<BaseNote>) = dao.updateAll(baseNotes)
+
+    override suspend fun getTombstones(): List<SyncTombstone> = dao.getTombstones()
 
     override suspend fun updatePinned(ids: LongArray, pinned: Boolean) =
         dao.updatePinned(ids, pinned)
