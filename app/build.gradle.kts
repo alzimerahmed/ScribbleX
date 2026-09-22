@@ -65,9 +65,13 @@ android {
         baseline = file("lint-baseline.xml")
     }
     sourceSets {
-        // Expose exported Room schemas to Robolectric unit tests for MigrationTestHelper
-        // (debug-only: Robolectric reads the debug merged assets, release is unaffected)
+        // Expose exported Room schemas to Robolectric unit tests for MigrationTestHelper.
+        // Both variants: assembleRelease depends on testReleaseUnitTest (upstream convention),
+        // so the release unit-test variant needs the schemas too.
         getByName("debug") {
+            assets.srcDir("$projectDir/schemas")
+        }
+        getByName("release") {
             assets.srcDir("$projectDir/schemas")
         }
     }
