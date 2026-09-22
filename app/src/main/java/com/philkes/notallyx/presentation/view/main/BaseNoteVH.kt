@@ -140,7 +140,7 @@ class BaseNoteVH(
                 } else text = baseNote.title
             } else text = baseNote.title
 
-            setCompoundDrawablesWithIntrinsicBounds(
+            setCompoundDrawablesRelativeWithIntrinsicBounds(
                 if (baseNote.type == Type.LIST && preferences.maxItems < 1)
                     R.drawable.checkbox_small
                 else 0,

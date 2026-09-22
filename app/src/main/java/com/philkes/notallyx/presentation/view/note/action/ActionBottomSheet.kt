@@ -77,7 +77,7 @@ open class ActionBottomSheet(
                     text = action.label ?: getString(action.labelResId!!)
                     val drawable =
                         action.drawableResId?.let { ContextCompat.getDrawable(context, it) }
-                    setCompoundDrawablesWithIntrinsicBounds(drawable, null, null, null)
+                    setCompoundDrawablesRelativeWithIntrinsicBounds(drawable, null, null, null)
                     setOnClickListener {
                         if (action.callback(this@ActionBottomSheet)) {
                             dismiss()

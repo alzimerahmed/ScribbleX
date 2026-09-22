@@ -751,8 +751,11 @@ private fun ContextWrapper.postSkippedAttachmentsNotification(missingAttachments
                 .setSmallIcon(R.drawable.export)
                 .setContentTitle(getString(R.string.backup))
                 .setContentText(
-                    getString(R.string.auto_backup_skipped_files, missingAttachments.size) +
-                        " (${getCurrentMediaRoot()})"
+                    getString(
+                        R.string.auto_backup_skipped_files_in_folder,
+                        getString(R.string.auto_backup_skipped_files, missingAttachments.size),
+                        getCurrentMediaRoot(),
+                    )
                 )
                 .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
