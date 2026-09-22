@@ -235,8 +235,9 @@ class NotallyXPreferences private constructor(private val context: ContextWrappe
         )
 
     /** Opt-in Markdown source editing mode for notes (Phase 7 F4) */
-    val markdownEditMode =
-        BooleanPreference("markdownEditMode", preferences, false, R.string.markdown_edit_mode)
+    // markdownEditMode preference removed (M6 remediation): the edit-activity wiring never
+    // shipped, so the opt-in toggle was dead UI that silently changed export behavior.
+    // MarkdownRoundTrip + tests are kept for the future F4 implementation.
 
     // Self-hosted sync MVP (Phase 7 F1). Opt-in, disabled by default; all sync code is inert
     // unless syncEnabled is true AND server URL + credentials are configured.
@@ -249,7 +250,9 @@ class NotallyXPreferences private constructor(private val context: ContextWrappe
         StringPreference(
             "syncPassword",
             encryptedPreferences,
-            PASSWORD_EMPTY,
+            // M1: empty string = unset. The PASSWORD_EMPTY ("None") sentinel must never become
+            // the E2E key; syncNow treats both "" and the legacy sentinel as not configured.
+            "",
             R.string.sync_password,
         )
     }
@@ -384,7 +387,6 @@ class NotallyXPreferences private constructor(private val context: ContextWrappe
                 autoRemoveDeletedNotesAfterDays,
                 editNoteActivityTopActions,
                 editNoteActivityBottomAction,
-                markdownEditMode,
                 defaultNoteColor,
                 defaultListNoteViewMode,
                 syncEnabled,
