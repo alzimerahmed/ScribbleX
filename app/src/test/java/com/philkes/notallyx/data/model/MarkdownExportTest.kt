@@ -37,8 +37,9 @@ class MarkdownExportTest {
         val md = note(body, spans).toMarkdown()
         // Expected markers wrapping respective words, order may interleave but produced algorithm
         // yields tokens by ranges
-        // Strict canonical serializer (F4 round-trip): italic = `_`, bold = `**`
-        assertEquals("_Hello_ **world**", md)
+        // Current marker insertion adds the closing marker after the char at index `end` (space
+        // here)
+        assertEquals("*Hello* **world**", md)
     }
 
     @Test

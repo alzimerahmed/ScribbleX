@@ -71,10 +71,6 @@
           layout="@layout/preference" />
 
         <include
-          android:id="@+id/MarkdownEditMode"
-          layout="@layout/preference" />
-
-        <include
           android:id="@+id/AutoSaveAfterIdle"
           layout="@layout/preference_stepper" />
 
