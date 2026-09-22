@@ -10,6 +10,7 @@ import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.workDataOf
 import java.util.concurrent.TimeUnit
 
 /**
@@ -23,13 +24,25 @@ class SyncWorker(private val context: Context, params: WorkerParameters) :
 
     override suspend fun doWork(): Result {
         val app = context.applicationContext as ContextWrapper
-        return when (createSyncEngine(app).syncNow().status) {
+        val result = createSyncEngine(app).syncNow()
+        val output =
+            workDataOf(
+                OUTPUT_STATUS to result.status.name,
+                OUTPUT_UPLOADED to result.uploaded,
+                OUTPUT_DOWNLOADED to result.downloaded,
+            )
+        return when (result.status) {
             SyncResult.Status.SUCCESS,
             SyncResult.Status.DISABLED,
-            SyncResult.Status.NOT_CONFIGURED -> Result.success()
+            SyncResult.Status.NOT_CONFIGURED -> Result.success(output)
 
+            // m2: report terminal failures (with the message) instead of retrying forever, so
+            // the settings UI can show sync_failed. Retry would loop on non-transient errors.
             SyncResult.Status.BACKUP_FAILED,
-            SyncResult.Status.ERROR -> Result.retry()
+            SyncResult.Status.ERROR ->
+                Result.failure(
+                    output + workDataOf(OUTPUT_EXCEPTION to (result.message ?: result.status.name))
+                )
         }
     }
 
@@ -37,6 +50,10 @@ class SyncWorker(private val context: Context, params: WorkerParameters) :
         const val WORK_NAME_ON_DEMAND = "com.philkes.notallyx.SyncNow"
         const val WORK_NAME_PERIODIC = "com.philkes.notallyx.PeriodicSync"
         const val PERIODIC_SYNC_INTERVAL_DAYS = 1L
+        const val OUTPUT_STATUS = "status"
+        const val OUTPUT_UPLOADED = "uploaded"
+        const val OUTPUT_DOWNLOADED = "downloaded"
+        const val OUTPUT_EXCEPTION = "exception"
     }
 }
 
