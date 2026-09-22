@@ -1,1 +1,1 @@
-A simple and minimalistic open source notes app
+Simple, minimalistic open-source notes, lists and tasks
