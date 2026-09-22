@@ -42,7 +42,7 @@
 #
 # Cutting a release:
 #   1. Bump app.versionCode + app.versionName in gradle.properties
-#      (convention: versionCode encodes the version, e.g. 7.11.3 -> 71133).
+#      (convention: bump versionCode; it must strictly increase every release).
 #   2. Add a fastlane changelog entry:
 #      fastlane/metadata/android/en-US/changelogs/<versionCode>.txt (<=500 chars).
 #   3. Commit: `chore(release): vX.Y.Z`.
@@ -92,15 +92,20 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Derive version from tag
+      - name: Read version from gradle.properties
         id: version
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           echo "versionName=$TAG" >> "$GITHUB_OUTPUT"
-          # versionCode: MAJOR*10000 + MINOR*100 + PATCH (matches the
-          # 7.11.3 -> 71133 convention in gradle.properties)
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$TAG"
-          echo "versionCode=$((MAJOR * 10000 + MINOR * 100 + PATCH))" >> "$GITHUB_OUTPUT"
+          # gradle.properties is the source of truth for versionCode
+          # (release process step 1: bump it before tagging). The tag must
+          # match app.versionName; versionCode must strictly increase.
+          PROPS_VERSION="$(grep '^app.versionName=' gradle.properties | cut -d= -f2 | tr -d ' \r')"
+          if [ "$TAG" != "$PROPS_VERSION" ]; then
+            echo "::error::Tag v$TAG does not match app.versionName=$PROPS_VERSION in gradle.properties. Bump gradle.properties first (release process step 1)."
+            exit 1
+          fi
+          echo "versionCode=$(grep '^app.versionCode=' gradle.properties | cut -d= -f2 | tr -d ' \r')" >> "$GITHUB_OUTPUT"
 
       - name: Decode keystore from secrets
         env:

@@ -442,8 +442,6 @@
     <string name="wrong_password">Wrong password provided</string>
     <string name="yearly">Yearly</string>
     <string name="years">Years</string>
-    <string name="markdown_mode_enabled">Markdown source editing enabled</string>
-    <string name="markdown_mode_applied">Markdown converted to rich text</string>
     <string name="your_notes_associated">Your notes attached to this label will not be deleted</string>
     <string name="sync">Sync</string>
     <string name="sync_enable">Enable self-hosted sync</string>
