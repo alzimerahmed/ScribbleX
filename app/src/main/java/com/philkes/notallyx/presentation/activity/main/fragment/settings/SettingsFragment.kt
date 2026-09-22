@@ -26,6 +26,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.lifecycleScope
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputLayout.END_ICON_PASSWORD_TOGGLE
@@ -76,6 +77,7 @@ import com.philkes.notallyx.utils.security.DecryptionException
 import com.philkes.notallyx.utils.security.EncryptionException
 import com.philkes.notallyx.utils.security.showBiometricOrPinPrompt
 import com.philkes.notallyx.utils.showErrorDialog
+import com.philkes.notallyx.utils.sync.SyncWorker
 import com.philkes.notallyx.utils.sync.schedulePeriodicSync
 import com.philkes.notallyx.utils.sync.scheduleSyncNow
 import com.philkes.notallyx.utils.viewLogs
@@ -391,18 +393,6 @@ class SettingsFragment : Fragment() {
                 requireContext(),
             ) { newValue ->
                 model.savePreference(defaultListNoteViewMode, newValue)
-            }
-        }
-
-        markdownEditMode.observe(viewLifecycleOwner) { value ->
-            binding.MarkdownEditMode.setup(
-                markdownEditMode,
-                value,
-                requireContext(),
-                layoutInflater,
-                R.string.markdown_edit_mode_hint,
-            ) { newValue ->
-                model.savePreference(markdownEditMode, newValue)
             }
         }
 
@@ -788,14 +778,12 @@ class SettingsFragment : Fragment() {
                 model.savePreference(syncUsername, binding.SyncUsername.text.toString().trim())
             }
         }
-        // Password lives in EncryptedSharedPreferences; only written, never logged
-        binding.SyncPassword.setText(syncPassword.value)
+        // Password lives in EncryptedSharedPreferences; only written, never logged.
+        // M1: never populate the field with the "None" sentinel — show empty instead.
+        binding.SyncPassword.setText(syncPassword.value.takeUnless { it == PASSWORD_EMPTY } ?: "")
         binding.SyncPassword.setOnFocusChangeListener { _, hasFocus ->
             if (!hasFocus) {
-                model.savePreference(
-                    syncPassword,
-                    binding.SyncPassword.text.toString().ifEmpty { PASSWORD_EMPTY },
-                )
+                model.savePreference(syncPassword, binding.SyncPassword.text.toString())
             }
         }
 
@@ -820,6 +808,33 @@ class SettingsFragment : Fragment() {
             (requireContext().applicationContext as ContextWrapper).scheduleSyncNow()
             binding.SyncNow.isEnabled = true
         }
+
+        // m2: surface the worker's outcome (success/failed) via the defined status strings
+        WorkManager.getInstance(requireContext())
+            .getWorkInfosForUniqueWorkLiveData(SyncWorker.WORK_NAME_ON_DEMAND)
+            .observe(viewLifecycleOwner) { workInfos ->
+                val info = workInfos?.firstOrNull() ?: return@observe
+                when (info.state) {
+                    WorkInfo.State.RUNNING ->
+                        binding.SyncStatus.text = getString(R.string.sync_running)
+
+                    WorkInfo.State.SUCCEEDED -> {
+                        val uploaded = info.outputData.getInt(SyncWorker.OUTPUT_UPLOADED, 0)
+                        val downloaded = info.outputData.getInt(SyncWorker.OUTPUT_DOWNLOADED, 0)
+                        binding.SyncStatus.text =
+                            getString(R.string.sync_success, uploaded, downloaded)
+                    }
+
+                    WorkInfo.State.FAILED ->
+                        binding.SyncStatus.text =
+                            getString(
+                                R.string.sync_failed,
+                                info.outputData.getString(SyncWorker.OUTPUT_EXCEPTION) ?: "",
+                            )
+
+                    else -> updateLastSyncLabel()
+                }
+            }
     }
 
     private fun NotallyXPreferences.setupSecurity(binding: FragmentSettingsBinding) {

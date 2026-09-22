@@ -118,6 +118,9 @@ class FakeNoteRepository : NoteRepository {
         baseNotes.forEach { notes[it.id] = it }
     }
 
+    override suspend fun getTombstones(): List<com.philkes.notallyx.data.model.SyncTombstone> =
+        emptyList()
+
     override suspend fun moveBaseNotes(ids: LongArray, folder: Folder) {
         updateByIds(ids) { it.copy(folder = folder) }
     }

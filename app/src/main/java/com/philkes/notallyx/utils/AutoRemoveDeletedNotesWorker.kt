@@ -9,6 +9,7 @@ import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import com.philkes.notallyx.data.NotallyDatabase
 import com.philkes.notallyx.data.model.Converters
+import com.philkes.notallyx.data.model.SyncTombstone
 import com.philkes.notallyx.presentation.format
 import com.philkes.notallyx.presentation.viewmodel.preference.NotallyXPreferences
 import java.util.Date
@@ -60,6 +61,15 @@ suspend fun ContextWrapper.removeOldDeletedNotes(): ListenableWorker.Result {
             val images = imageStrings.flatMap { json -> Converters.jsonToFiles(json) }
             val files = fileStrings.flatMap { json -> Converters.jsonToFiles(json) }
             val audios = audioStrings.flatMap { json -> Converters.jsonToAudios(json) }
+
+            // Record sync tombstones before the rows are gone (C2: deletion propagation)
+            baseNoteDao
+                .getSyncIds(ids)
+                .filterNotNull()
+                .takeIf { it.isNotEmpty() }
+                ?.let { syncIds ->
+                    baseNoteDao.insertTombstones(syncIds.map { SyncTombstone(it, now) })
+                }
 
             baseNoteDao.delete(ids)
             deleteAttachments(images + files + audios, ids)

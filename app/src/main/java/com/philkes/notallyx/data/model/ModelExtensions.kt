@@ -11,7 +11,7 @@ import androidx.core.text.toHtml
 import com.philkes.notallyx.R
 import com.philkes.notallyx.data.dao.BaseNoteDao.Companion.MAX_BODY_CHAR_LENGTH
 import com.philkes.notallyx.data.dao.NoteIdReminder
-import com.philkes.notallyx.data.imports.markdown.bodyAndSpansToMarkdown
+import com.philkes.notallyx.data.imports.markdown.createMarkdownFromBodyAndSpans
 import com.philkes.notallyx.data.model.BaseNote.Companion.COLOR_DEFAULT
 import com.philkes.notallyx.presentation.applySpans
 import com.philkes.notallyx.presentation.getQuantityStringPlain
@@ -98,6 +98,7 @@ fun BaseNote.toJson(): String {
             .put("timestamp", timestamp)
             .put("modifiedTimestamp", modifiedTimestamp)
             .put("labels", JSONArray(labels))
+            .put("syncId", syncId ?: JSONObject.NULL)
 
     when (type) {
         Type.NOTE -> {
@@ -136,6 +137,8 @@ fun String.toBaseNote(): BaseNote {
     val audios = Converters.jsonToAudios(jsonObject.getArrayOrEmpty("audios"))
     val reminders = Converters.jsonToReminders(jsonObject.getArrayOrEmpty("reminders"))
     val viewMode = NoteViewMode.valueOfOrDefault(jsonObject.getStringOrDefault("viewMode", ""))
+    // Sync identity (C1): round-trips through the sync payload; null for legacy/local-only notes
+    val syncId = jsonObject.getStringOrDefault("syncId", "").takeIf { it.isNotEmpty() }
     return BaseNote(
         id,
         type,
@@ -155,6 +158,7 @@ fun String.toBaseNote(): BaseNote {
         reminders,
         viewMode,
         pinnedToStatusBar,
+        syncId,
     )
 }
 
@@ -276,9 +280,7 @@ fun List<BaseNote>.toNoteIdReminders() = map { NoteIdReminder(it.id, it.reminder
 fun BaseNote.toMarkdown(): String = buildString {
     when (type) {
         Type.NOTE -> {
-            // Strict canonical serializer: guarantees a lossless round-trip with
-            // parseMarkdownToBodyAndSpans (Markdown editing mode, Phase 7 F4)
-            append(bodyAndSpansToMarkdown(body, spans))
+            append(createMarkdownFromBodyAndSpans(body, spans))
         }
         Type.LIST -> {
             append(items.toMarkdownChecklist())

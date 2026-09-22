@@ -18,6 +18,7 @@ import com.philkes.notallyx.data.model.LabelsInBaseNote
 import com.philkes.notallyx.data.model.ListItem
 import com.philkes.notallyx.data.model.NoteSearchHit
 import com.philkes.notallyx.data.model.Reminder
+import com.philkes.notallyx.data.model.SyncTombstone
 import com.philkes.notallyx.data.model.Type
 import com.philkes.notallyx.data.model.rankFtsSearchResults
 import com.philkes.notallyx.data.model.toFtsMatchQuery
@@ -121,6 +122,18 @@ interface BaseNoteDao {
     @Query("DELETE FROM BaseNote WHERE id IN (:ids)") suspend fun delete(ids: LongArray)
 
     @Query("DELETE FROM BaseNote WHERE folder = :folder") suspend fun deleteFrom(folder: Folder)
+
+    // Sync identity + tombstones (Phase 7 remediation, C1/C2)
+    @Query("SELECT syncId FROM BaseNote WHERE id IN (:ids)")
+    suspend fun getSyncIds(ids: LongArray): List<String?>
+
+    @Query("SELECT syncId FROM BaseNote WHERE folder = :folder")
+    suspend fun getSyncIdsInFolder(folder: Folder): List<String?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTombstones(tombstones: List<SyncTombstone>)
+
+    @Query("SELECT * FROM SyncTombstone") suspend fun getTombstones(): List<SyncTombstone>
 
     @Query("SELECT * FROM BaseNote WHERE folder = :folder ORDER BY pinned DESC, timestamp DESC")
     fun getFrom(folder: Folder): LiveData<List<BaseNote>>

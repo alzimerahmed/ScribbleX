@@ -62,11 +62,13 @@ object GeofenceLogic {
  * 10+, [Manifest.permission.ACCESS_BACKGROUND_LOCATION] because alerts fire while the app is in the
  * background.
  */
+/**
+ * M4: [LocationManager.addProximityAlert] requires ACCESS_FINE_LOCATION — coarse alone is not
+ * sufficient and would make the gate pass while scheduling throws. FINE only.
+ */
 fun Context.hasLocationPermission(): Boolean =
     ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
-        PackageManager.PERMISSION_GRANTED ||
-        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
-            PackageManager.PERMISSION_GRANTED
+        PackageManager.PERMISSION_GRANTED
 
 fun Context.hasBackgroundLocationPermission(): Boolean =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

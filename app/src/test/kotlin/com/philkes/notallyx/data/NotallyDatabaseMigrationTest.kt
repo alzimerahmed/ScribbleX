@@ -357,6 +357,74 @@ class NotallyDatabaseMigrationTest {
         }
     }
 
+    /**
+     * Phase 7 remediation (C1 + C2): Migration 14 adds `BaseNote.syncId` (sync identity UUID) and
+     * the `SyncTombstone` table. Fully additive — data must survive untouched.
+     */
+    @Test
+    fun migrate13To14_addsSyncIdColumnAndTombstoneTable() {
+        helper.createDatabase(DB_NAME, 13).use { db ->
+            seedNote(db, version = 10, timestamp = 1L, withViewMode = true)
+            db.execSQL(
+                "INSERT INTO BaseNote (type, folder, color, title, pinned, timestamp, modifiedTimestamp, images, audios, files, reminders, labels, body, spans, items, viewMode, isPinnedToStatus) " +
+                    "VALUES ('NOTE', 'NOTES', 'DEFAULT', 'second', 0, 2, 2, '[]', '[]', '[]', '[]', '[]', 'body2', '[]', '[]', 'EDIT', 0)"
+            )
+        }
+
+        helper
+            .runMigrationsAndValidate(DB_NAME, 14, true, NotallyDatabase.Companion.Migration14)
+            .use { db ->
+                // syncId column exists and is NULL for pre-existing rows (backfilled lazily)
+                db.query("SELECT title, syncId FROM BaseNote ORDER BY id").use { cursor ->
+                    assertThat(cursor.moveToFirst()).isTrue()
+                    assertThat(cursor.getString(0)).isEqualTo("t")
+                    assertThat(cursor.isNull(1)).isTrue()
+                    assertThat(cursor.moveToNext()).isTrue()
+                    assertThat(cursor.getString(0)).isEqualTo("second")
+                    assertThat(cursor.isNull(1)).isTrue()
+                }
+                // Tombstone table exists and is writable
+                db.execSQL(
+                    "INSERT INTO SyncTombstone (syncId, deletedTimestamp) VALUES ('uuid-1', 42)"
+                )
+                db.query("SELECT deletedTimestamp FROM SyncTombstone WHERE syncId = 'uuid-1'")
+                    .use { cursor ->
+                        assertThat(cursor.moveToFirst()).isTrue()
+                        assertThat(cursor.getLong(0)).isEqualTo(42L)
+                    }
+                // No user rows touched
+                db.query("SELECT COUNT(*) FROM BaseNote").use { cursor ->
+                    assertThat(cursor.moveToFirst()).isTrue()
+                    assertThat(cursor.getInt(0)).isEqualTo(2)
+                }
+            }
+    }
+
+    /** Re-running Migration 14 (crash-recovery scenario) must not crash or duplicate rows. */
+    @Test
+    fun migrate14_isIdempotent() {
+        helper.createDatabase(DB_NAME, 13).use { db ->
+            seedNote(db, version = 10, timestamp = 1L, withViewMode = true)
+        }
+
+        runBareMigrationAndAssert(13) { supportDb ->
+            NotallyDatabase.Companion.Migration14.migrate(supportDb)
+            NotallyDatabase.Companion.Migration14.migrate(supportDb)
+            supportDb.query("SELECT COUNT(*) FROM BaseNote").use { cursor ->
+                assertThat(cursor.moveToFirst()).isTrue()
+                assertThat(cursor.getInt(0)).isEqualTo(1)
+            }
+            supportDb
+                .query(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'SyncTombstone'"
+                )
+                .use { cursor ->
+                    assertThat(cursor.moveToFirst()).isTrue()
+                    assertThat(cursor.getInt(0)).isEqualTo(1)
+                }
+        }
+    }
+
     /** The full upgrade path any long-standing user takes. Nothing may be lost or corrupted. */
     @Test
     fun migrateAllVersions_1To13_preservesNotesAndBackfills() {

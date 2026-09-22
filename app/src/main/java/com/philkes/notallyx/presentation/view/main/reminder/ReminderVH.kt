@@ -23,8 +23,8 @@ class ReminderVH(
                 DateTime.text =
                     itemView.context.getString(
                         R.string.location_reminder_coordinates,
-                        location.latitude.toString(),
-                        location.longitude.toString(),
+                        location.latitude,
+                        location.longitude,
                     )
                 Repetition.text =
                     itemView.context.getString(
