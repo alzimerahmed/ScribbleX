@@ -690,9 +690,9 @@ class RemindersActivity : LockedActivity<ActivityRemindersBinding>(), ReminderLi
             if (location != null) {
                 getString(
                     R.string.location_reminder_coordinates,
-                    location.latitude.toString(),
-                    location.longitude.toString(),
-                ) + "\n" + getString(R.string.location_reminder_radius, location.radius.toString())
+                    location.latitude,
+                    location.longitude,
+                ) + "\n" + getString(R.string.location_reminder_radius, location.radius)
             } else {
                 "${reminder.dateTime.format(
                     preferences.dateFormatNoteView.value,
