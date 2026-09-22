@@ -20,11 +20,24 @@ plugins {
 }
 
 android {
+    // ADR-001 (applicationId identity): ScribbleX is an independent fork of NotallyX
+    // (upstream history dropped, distributed via GitHub Releases + F-Droid only, no
+    // GMS). We adopt a NEW applicationId `com.scribblex.app` so the fork is its own
+    // app with its own update path. Consequence: existing NotallyX users cannot
+    // upgrade in place — they must export a backup from NotallyX and import it in
+    // ScribbleX (Settings > Import; supports NotallyX backups plus Evernote, Google
+    // Keep, Quillpad, plain text, markdown — see data/imports/ and
+    // utils/backup/ImportExtensions.kt). The `namespace` intentionally STAYS
+    // `com.philkes.notallyx`: it only defines the R/BuildConfig package and manifest
+    // resolution for the existing source tree (package com.philkes.notallyx) and is
+    // NOT user-visible identity; renaming it would require moving every source file
+    // for zero user-facing benefit. The BETA buildType keeps its `.beta`
+    // applicationIdSuffix so BETA installs remain a separate app/data slot.
     namespace = "com.philkes.notallyx"
     compileSdk = 36
     ndkVersion = "29.0.13113456"
     defaultConfig {
-        applicationId = "com.philkes.notallyx"
+        applicationId = "com.scribblex.app"
         minSdk = 21
         targetSdk = 36
         versionCode = project.findProperty("app.versionCode").toString().toInt()
@@ -61,12 +74,26 @@ android {
 
     signingConfigs {
         create("release") {
-            val storeFile = providers.gradleProperty("RELEASE_STORE_FILE").orNull
+            // CI-only signing path: credentials come from gradle properties
+            // (-PRELEASE_*) or environment variables (set by the release workflow
+            // from GitHub secrets KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS /
+            // KEY_PASSWORD). Never commit a keystore or passwords. When neither is
+            // present (local builds), the config stays empty and release builds
+            // fall back to unsigned — local debug builds are unaffected.
+            val storeFile =
+                providers.gradleProperty("RELEASE_STORE_FILE").orNull
+                    ?: System.getenv("RELEASE_STORE_FILE")
             if (storeFile != null) {
                 this@create.storeFile = file(storeFile)
-                storePassword = providers.gradleProperty("RELEASE_STORE_PASSWORD").get()
-                keyAlias = providers.gradleProperty("RELEASE_KEY_ALIAS").get()
-                keyPassword = providers.gradleProperty("RELEASE_KEY_PASSWORD").get()
+                storePassword =
+                    providers.gradleProperty("RELEASE_STORE_PASSWORD").orNull
+                        ?: System.getenv("RELEASE_STORE_PASSWORD")
+                keyAlias =
+                    providers.gradleProperty("RELEASE_KEY_ALIAS").orNull
+                        ?: System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword =
+                    providers.gradleProperty("RELEASE_KEY_PASSWORD").orNull
+                        ?: System.getenv("RELEASE_KEY_PASSWORD")
             }
         }
     }
@@ -75,7 +102,7 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-DEBUG"
-            resValue("string", "app_name", "NotallyX DEBUG")
+            resValue("string", "app_name", "ScribbleX DEBUG")
         }
         release {
             isCrunchPngs = false
@@ -91,7 +118,7 @@ android {
             initWith(getByName("release"))
             applicationIdSuffix = ".beta"
             versionNameSuffix = "-BETA"
-            resValue("string", "app_name", "NotallyX BETA")
+            resValue("string", "app_name", "ScribbleX BETA")
         }
     }
 
@@ -99,7 +126,7 @@ android {
         this.outputs
             .map { it as com.android.build.gradle.internal.api.ApkVariantOutputImpl }
             .forEach { output ->
-                output.outputFileName = "NotallyX-$versionName.apk"
+                output.outputFileName = "ScribbleX-$versionName.apk"
             }
 
         if (buildType.isMinifyEnabled) {
