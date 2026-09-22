@@ -6,8 +6,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.text.Editable
 import android.util.Log
 import android.view.View
@@ -229,22 +231,46 @@ class RemindersActivity : LockedActivity<ActivityRemindersBinding>(), ReminderLi
             }
         backgroundLocationPermissionLauncher =
             registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-                if (!granted) {
-                    showToast(getString(R.string.background_location_needed))
+                if (granted) {
+                    locationPermissionContinuation?.invoke()
+                    locationPermissionContinuation = null
+                } else {
+                    // M5: on Android 10+ the runtime dialog for background location is a no-op
+                    // (returns instantly denied). Never continue scheduling without it —
+                    // direct the user to the app settings page instead.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        showBackgroundLocationSettingsDialog()
+                    } else {
+                        showToast(getString(R.string.background_location_needed))
+                    }
                 }
-                locationPermissionContinuation?.invoke()
-                locationPermissionContinuation = null
             }
     }
 
+    /**
+     * M5: Android 11+ cannot request background location via a runtime dialog; send the user to the
+     * app details settings page instead.
+     */
+    private fun showBackgroundLocationSettingsDialog() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.background_location_settings_title)
+            .setMessage(R.string.background_location_settings_message)
+            .setPositiveButton(R.string.background_location_settings_open) { _, _ ->
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .setData(Uri.fromParts("package", packageName, null))
+                )
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
     private fun checkLocationPermissions(onGranted: () -> Unit) {
+        // M4: addProximityAlert requires ACCESS_FINE_LOCATION — coarse alone is not enough
         val fineGranted =
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
                 PackageManager.PERMISSION_GRANTED
-        val coarseGranted =
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
-                PackageManager.PERMISSION_GRANTED
-        if (fineGranted || coarseGranted) {
+        if (fineGranted) {
             if (
                 Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
                     ContextCompat.checkSelfPermission(
@@ -261,12 +287,7 @@ class RemindersActivity : LockedActivity<ActivityRemindersBinding>(), ReminderLi
             }
         } else {
             locationPermissionContinuation = onGranted
-            locationPermissionsLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                )
-            )
+            locationPermissionsLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION))
         }
     }
 
