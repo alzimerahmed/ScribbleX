@@ -300,9 +300,66 @@ class NotallyDatabaseMigrationTest {
         }
     }
 
+    /**
+     * Phase 8: Migration 13 adds two query-shape indices over BaseNote. Fully additive — data must
+     * survive untouched and the indices must exist after migration.
+     */
+    @Test
+    fun migrate12To13_addsQueryShapeIndicesAndPreservesData() {
+        helper.createDatabase(DB_NAME, 12).use { db ->
+            seedNote(db, version = 10, timestamp = 1L, withViewMode = true)
+        }
+
+        helper
+            .runMigrationsAndValidate(DB_NAME, 13, true, NotallyDatabase.Companion.Migration13)
+            .use { db ->
+                db.query("SELECT COUNT(*) FROM BaseNote").use { cursor ->
+                    assertThat(cursor.moveToFirst()).isTrue()
+                    assertThat(cursor.getInt(0)).isEqualTo(1)
+                }
+                val indexNames =
+                    db.query(
+                            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'BaseNote'"
+                        )
+                        .use { cursor ->
+                            val names = mutableListOf<String>()
+                            while (cursor.moveToNext()) {
+                                names.add(cursor.getString(0))
+                            }
+                            names
+                        }
+                assertThat(indexNames)
+                    .contains(
+                        "index_BaseNote_folder_pinned_timestamp",
+                        "index_BaseNote_folder_modifiedTimestamp",
+                    )
+            }
+    }
+
+    /** Re-running Migration 13 (crash-recovery scenario) must not crash or duplicate indices. */
+    @Test
+    fun migrate13_isIdempotent() {
+        helper.createDatabase(DB_NAME, 12).use { db ->
+            seedNote(db, version = 10, timestamp = 1L, withViewMode = true)
+        }
+
+        runBareMigrationAndAssert(12) { supportDb ->
+            NotallyDatabase.Companion.Migration13.migrate(supportDb)
+            NotallyDatabase.Companion.Migration13.migrate(supportDb)
+            supportDb
+                .query(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name IN ('index_BaseNote_folder_pinned_timestamp', 'index_BaseNote_folder_modifiedTimestamp')"
+                )
+                .use { cursor ->
+                    assertThat(cursor.moveToFirst()).isTrue()
+                    assertThat(cursor.getInt(0)).isEqualTo(2)
+                }
+        }
+    }
+
     /** The full upgrade path any long-standing user takes. Nothing may be lost or corrupted. */
     @Test
-    fun migrateAllVersions_1To12_preservesNotesAndBackfills() {
+    fun migrateAllVersions_1To13_preservesNotesAndBackfills() {
         helper.createDatabase(DB_NAME, 1).use { db ->
             db.execSQL(
                 "INSERT INTO BaseNote (type, folder, title, pinned, timestamp, labels, body, spans, items) " +
@@ -328,6 +385,7 @@ class NotallyDatabaseMigrationTest {
                 NotallyDatabase.Companion.Migration10,
                 NotallyDatabase.Companion.Migration11,
                 NotallyDatabase.Companion.Migration12,
+                NotallyDatabase.Companion.Migration13,
             )
             .use { db ->
                 db.query(

@@ -7,7 +7,24 @@ import androidx.room.PrimaryKey
 /** Format: `#RRGGBB` or `#AARRGGBB` or [BaseNote.COLOR_DEFAULT] */
 typealias ColorString = String
 
-@Entity(indices = [Index(value = ["id", "folder", "pinned", "timestamp", "labels"])])
+/**
+ * Index tuning (Phase 8): the legacy composite index leads with `id` (the rowid alias), so SQLite
+ * can never use it to satisfy `WHERE folder = ...` lookups — every list query degenerates into a
+ * full table scan + sort. The two indices below cover the dominant query shapes:
+ * - (folder, pinned, timestamp): main/archived/deleted list queries (`WHERE folder = ? ORDER BY
+ *   pinned DESC, timestamp DESC`) and keyword-search variants.
+ * - (folder, modifiedTimestamp): deleted-note auto-removal (`WHERE folder = 'DELETED' AND
+ *   modifiedTimestamp < :before`). The legacy index is kept (additive-only migration; it still
+ *   serves `WHERE id IN (...)` lookups).
+ */
+@Entity(
+    indices =
+        [
+            Index(value = ["id", "folder", "pinned", "timestamp", "labels"]),
+            Index(value = ["folder", "pinned", "timestamp"]),
+            Index(value = ["folder", "modifiedTimestamp"]),
+        ]
+)
 data class BaseNote(
     @PrimaryKey(autoGenerate = true) val id: Long,
     val type: Type,
