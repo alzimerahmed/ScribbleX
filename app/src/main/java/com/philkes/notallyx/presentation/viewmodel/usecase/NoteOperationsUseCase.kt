@@ -11,6 +11,7 @@ import com.philkes.notallyx.data.model.FileAttachment
 import com.philkes.notallyx.data.model.Folder
 import com.philkes.notallyx.data.model.deepCopy
 import com.philkes.notallyx.data.repository.AttachmentRepository
+import com.philkes.notallyx.data.repository.LabelRepository
 import com.philkes.notallyx.data.repository.NoteRepository
 import com.philkes.notallyx.utils.cancelPinAndReminders
 import kotlinx.coroutines.CoroutineScope
@@ -62,10 +63,9 @@ class NoteOperationsUseCase(
     suspend fun deleteBaseNotes(ids: LongArray): Collection<BaseNote> {
         val notes = withContext(Dispatchers.IO) { noteRepository.getByIds(ids) }
         app.cancelPinAndReminders(notes)
-        return withContext(Dispatchers.IO) {
-            noteRepository.delete(ids)
-            return@withContext notes
-        }
+        withContext(Dispatchers.IO) { noteRepository.delete(ids) }
+        attachmentRepository.deleteAttachments(notes)
+        return notes
     }
 
     /** Deletes every note, cancels reminders, removes attachments and all labels. */

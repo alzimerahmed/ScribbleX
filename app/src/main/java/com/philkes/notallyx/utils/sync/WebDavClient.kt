@@ -191,11 +191,15 @@ object PropfindParser {
         var inResponse = false
         var inProp = false
 
+        // The parser may not be namespace-aware (raw names include the prefix, e.g. "d:response"),
+        // so match on the local name after the colon.
+        fun localName() = parser.name.substringAfterLast(':').lowercase()
+
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT) {
             when (event) {
                 XmlPullParser.START_TAG -> {
-                    when (parser.name.lowercase()) {
+                    when (localName()) {
                         "response" -> {
                             inResponse = true
                             currentHref = null
@@ -211,7 +215,7 @@ object PropfindParser {
                 }
 
                 XmlPullParser.END_TAG -> {
-                    when (parser.name.lowercase()) {
+                    when (localName()) {
                         "prop" -> inProp = false
 
                         "response" -> {

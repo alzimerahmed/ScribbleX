@@ -33,7 +33,8 @@ class FakeNoteRepository : NoteRepository {
 
     override fun get(id: Long): BaseNote? = notes[id]
 
-    override fun getByIds(ids: LongArray): List<BaseNote> = ids.mapNotNull { notes[it] }
+    override fun getByIds(ids: LongArray): List<BaseNote> =
+        ids.toList().mapNotNull { id -> notes[id] }
 
     override suspend fun getAllIds(): List<Long> = notes.keys.toList()
 

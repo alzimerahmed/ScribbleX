@@ -58,7 +58,7 @@ class NoteRepositoryFakeTest {
     fun `delete removes notes by ids`() = runTest {
         val repository = FakeNoteRepository()
         val ids = repository.insert(listOf(note(), note()))
-        repository.delete(ids)
+        repository.delete(ids.toLongArray())
         assertTrue(repository.notes.isEmpty())
     }
 
@@ -66,7 +66,7 @@ class NoteRepositoryFakeTest {
     fun `moveBaseNotes changes folder`() = runTest {
         val repository = FakeNoteRepository()
         val ids = repository.insert(listOf(note()))
-        repository.moveBaseNotes(ids, Folder.DELETED)
+        repository.moveBaseNotes(ids.toLongArray(), Folder.DELETED)
         assertEquals(Folder.DELETED, repository.notes[ids.first()]?.folder)
     }
 

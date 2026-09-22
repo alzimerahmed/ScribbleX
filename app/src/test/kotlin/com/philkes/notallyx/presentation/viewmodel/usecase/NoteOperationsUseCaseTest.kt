@@ -9,11 +9,13 @@ import com.philkes.notallyx.data.repository.FakeAttachmentRepository
 import com.philkes.notallyx.data.repository.FakeLabelRepository
 import com.philkes.notallyx.data.repository.FakeNoteRepository
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
@@ -62,9 +64,11 @@ class NoteOperationsUseCaseTest {
     fun `deleteBaseNotes removes notes and returns them`() = runTest {
         val fixture = createFixture(this)
         val ids = fixture.noteRepository.insert(listOf(createNote(), createNote()))
-        val deleted = fixture.useCase.deleteBaseNotes(ids)
+        val deleted = fixture.useCase.deleteBaseNotes(ids.toLongArray())
         assertEquals(2, deleted.size)
         assertTrue(fixture.noteRepository.notes.isEmpty())
+        // attachment deletion runs in a separate launched coroutine on Dispatchers.IO — poll
+        awaitUntil { fixture.attachmentRepository.deletedNotes.size == 1 }
         assertEquals(1, fixture.attachmentRepository.deletedNotes.size)
     }
 
@@ -82,12 +86,28 @@ class NoteOperationsUseCaseTest {
     fun `pinBaseNotes pins selected notes`() = runTest {
         val fixture = createFixture(backgroundScope)
         val ids = fixture.noteRepository.insert(listOf(createNote(), createNote()))
-        fixture.useCase.pinBaseNotes(ids, true)
-        advanceUntilIdle()
+        fixture.useCase.pinBaseNotes(ids.toLongArray(), true)
+        // launched on Dispatchers.IO — advanceUntilIdle does not cover real IO threads, poll
+        awaitUntil { fixture.noteRepository.notes.values.all { it.pinned } }
         assertTrue(fixture.noteRepository.notes.values.all { it.pinned })
     }
 
     private companion object {
+
+        /**
+         * Polls [condition] until true or timeout. Runs on Dispatchers.IO so the test dispatcher's
+         * scheduler can process queued coroutines while we wait.
+         */
+        suspend fun awaitUntil(timeoutMs: Long = 5000, condition: () -> Boolean) =
+            withContext(Dispatchers.IO) {
+                val deadline = System.currentTimeMillis() + timeoutMs
+                while (!condition()) {
+                    check(System.currentTimeMillis() < deadline) {
+                        "Condition not met within timeout"
+                    }
+                    Thread.sleep(25)
+                }
+            }
 
         fun createNote(title: String = "Title", folder: Folder = Folder.NOTES): BaseNote =
             BaseNote(

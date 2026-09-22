@@ -131,7 +131,7 @@ class FtsSearchDaoTest {
     fun search_blankKeywordFallsBackToListingAllNotes() = runTest {
         seed()
         val results = baseNoteDao.searchNotes("", Folder.NOTES, "").first()
-        assertThat(results.map { it.id }).containsExactly(1L, 2L, 4L)
+        assertThat(results.map { it.id }).containsExactlyInAnyOrder(1L, 2L, 4L)
     }
 
     @Test

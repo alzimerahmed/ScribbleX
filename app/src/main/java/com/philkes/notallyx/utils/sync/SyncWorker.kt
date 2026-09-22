@@ -4,12 +4,14 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.Data
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import java.util.concurrent.TimeUnit
 
@@ -41,7 +43,10 @@ class SyncWorker(private val context: Context, params: WorkerParameters) :
             SyncResult.Status.BACKUP_FAILED,
             SyncResult.Status.ERROR ->
                 Result.failure(
-                    output + workDataOf(OUTPUT_EXCEPTION to (result.message ?: result.status.name))
+                    Data.Builder()
+                        .putAll(output)
+                        .putString(OUTPUT_EXCEPTION, result.message ?: result.status.name)
+                        .build()
                 )
         }
     }

@@ -12,6 +12,7 @@ import com.philkes.notallyx.presentation.viewmodel.preference.Constants.PASSWORD
 import com.philkes.notallyx.presentation.viewmodel.preference.NotallyXPreferences
 import com.philkes.notallyx.utils.backup.createBackup
 import com.philkes.notallyx.utils.log
+import java.util.UUID
 import kotlinx.coroutines.delay
 
 /*
@@ -181,7 +182,7 @@ class SyncEngine(
             withRetries { client.mkcol(SYNC_ROOT) }
             syncNotes(client)
         } catch (e: Exception) {
-            log(TAG, msg = "Sync failed", throwable = e)
+            context.log(TAG, msg = "Sync failed", throwable = e)
             SyncResult(SyncResult.Status.ERROR, message = e.message)
         }
     }
@@ -279,7 +280,7 @@ class SyncEngine(
             String(SyncCrypto.decrypt(payload, preferences.syncPassword.value), Charsets.UTF_8)
                 .toBaseNote()
         } catch (e: Exception) {
-            log(TAG, msg = "Skipping undecryptable/unparseable remote note", throwable = e)
+            context.log(TAG, msg = "Skipping undecryptable/unparseable remote note", throwable = e)
             null
         }
 

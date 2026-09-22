@@ -98,7 +98,7 @@ fun BaseNote.toJson(): String {
             .put("timestamp", timestamp)
             .put("modifiedTimestamp", modifiedTimestamp)
             .put("labels", JSONArray(labels))
-            .put("syncId", syncId ?: JSONObject.NULL)
+            .also { if (syncId != null) it.put("syncId", syncId) }
 
     when (type) {
         Type.NOTE -> {

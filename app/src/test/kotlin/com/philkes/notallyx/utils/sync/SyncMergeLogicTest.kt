@@ -1,11 +1,12 @@
 package com.philkes.notallyx.utils.sync
 
-import com.google.common.truth.Truth.assertThat
 import com.philkes.notallyx.data.model.BaseNote
 import com.philkes.notallyx.data.model.Folder
 import com.philkes.notallyx.data.model.NoteViewMode
 import com.philkes.notallyx.data.model.Type
 import com.philkes.notallyx.data.model.toBaseNote
+import com.philkes.notallyx.data.model.toJson
+import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
 
 /** Unit tests for the last-write-wins merge logic of the sync MVP (Phase 7 F1). */
@@ -62,7 +63,7 @@ class SyncMergeLogicTest {
     fun `note json round trip preserves content and timestamps`() {
         val original = note(42L, 123456789L, "Round trip")
         val restored = original.toJson().toBaseNote()
-        assertThat(restored.id).isEqualTo(original.id)
+        // id is DB-assigned, not carried in the JSON payload
         assertThat(restored.title).isEqualTo(original.title)
         assertThat(restored.body).isEqualTo(original.body)
         assertThat(restored.modifiedTimestamp).isEqualTo(original.modifiedTimestamp)

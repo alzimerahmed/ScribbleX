@@ -42,7 +42,10 @@ class MarkdownRoundTripTest {
 
     private fun roundTrip(markdown: String): String {
         val (body, spans) = parseMarkdownToBodyAndSpans(markdown)
-        return note(body, spans).toMarkdown()
+        // The strict serializer is the exact inverse of the parser (the future markdown editing
+        // mode); BaseNote.toMarkdown() is the legacy export serializer and is intentionally NOT
+        // byte-identical (see F4 revert in the Phase 7 remediation).
+        return bodyAndSpansToMarkdown(body, spans)
     }
 
     @Test
@@ -217,12 +220,13 @@ class MarkdownRoundTripTest {
 
     @Test
     fun full_edit_save_export_round_trip() {
-        // Simulates: user enters markdown source -> save (parse) -> export (toMarkdown)
+        // Simulates: user enters markdown source -> save (parse) -> re-serialize via the strict
+        // serializer (the future markdown editing mode's write path)
         val source =
             "# Heading kept verbatim\n\nIntro **bold**, _italic_, `code`, ~~strike~~, " +
                 "[link](https://ex.io)\n\n- [ ] open\n- [x] closed\n"
         val (body, spans) = parseMarkdownToBodyAndSpans(source)
-        val exported = note(body, spans).toMarkdown()
+        val exported = bodyAndSpansToMarkdown(body, spans)
         assertEquals(source, exported)
     }
 }
