@@ -2,14 +2,14 @@
 # ADR-001: ScribbleX applicationId identity
 # =============================================================================
 # Context: ScribbleX is a fully independent fork of NotallyX (itself a fork of
-# Notally). Upstream git history was dropped; distribution is GitHub Releases +
-# F-Droid only; there is no GMS dependency and no need for an upgrade path from
+# Notally). Upstream git history was dropped; distribution is GitHub Releases
+# only; there is no GMS dependency and no need for an upgrade path from
 # upstream NotallyX.
 #
 # Options:
 #   A) Keep `com.philkes.notallyx` (inherited identity).
 #      + Existing NotallyX users could upgrade in place.
-#      - Ships the fork under someone else's identity; F-Droid/Play listings,
+#      - Ships the fork under someone else's identity; store listings,
 #        backup file ownership, and update channels would collide with upstream.
 #      - NotallyX updates from upstream would overwrite/conflict with ScribbleX.
 #   B) New identity `com.scribblex.app`.  <-- DECIDED
@@ -20,7 +20,7 @@
 #        import-from-other-app support for exactly this: NotallyX/Notally
 #        backups (utils/backup/ImportExtensions.kt) plus Evernote, Google Keep,
 #        Quillpad, plain text and markdown (data/imports/). Document this in the
-#        README and F-Droid description.
+#        README.
 #
 # Decision: applicationId = `com.scribblex.app` (set in app/build.gradle.kts).
 # The `namespace` intentionally remains `com.philkes.notallyx`: it is a build
@@ -35,17 +35,13 @@
 # =============================================================================
 # Versioning & release process
 # =============================================================================
-# Scheme: semantic versioning, `MAJOR.MINOR.PATCH` in versionName
-# (gradle.properties: app.versionName, e.g. 7.11.3) and an integer versionCode
 # (app.versionCode, e.g. 71133) that must strictly increase with every release
-# (F-Droid and Android update checks both rely on it).
+# (Android update checks rely on it).
 #
 # Cutting a release:
 #   1. Bump app.versionCode + app.versionName in gradle.properties
 #      (convention: bump versionCode; it must strictly increase every release).
-#   2. Add a fastlane changelog entry:
-#      fastlane/metadata/android/en-US/changelogs/<versionCode>.txt (<=500 chars).
-#   3. Commit: `chore(release): vX.Y.Z`.
+#   2. Commit: `chore(release): vX.Y.Z`.
 #   4. Tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 #   5. This workflow builds the signed release APK from the tag, generates a
 #      changelog from commits since the previous tag, and publishes a GitHub

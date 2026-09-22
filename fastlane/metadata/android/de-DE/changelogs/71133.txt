@@ -1,3 +1,0 @@
-- Fix bei der Überprüfung der Datenbankverschlüsselung ohne SQLConnection
-- Fix unnötiges Neuanlegen der Datenbank
-- Auto. Erstellen von Absturzberichten inkl. Logs und Datenbank-Dumps

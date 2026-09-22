@@ -8,7 +8,6 @@
 .externalNativeBuild
 .cxx
 */.attach_pid*
-fastlane/report.xml
 Gemfile*
 *.sh
 !generate-changelogs.sh

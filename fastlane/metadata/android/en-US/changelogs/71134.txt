@@ -1,2 +1,0 @@
-- Initial ScribbleX release, forked from NotallyX
-- Import your notes from NotallyX/Notally backups, Evernote, Google Keep, Quillpad, plain text or markdown

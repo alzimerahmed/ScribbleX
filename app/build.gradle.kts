@@ -21,7 +21,7 @@ plugins {
 
 android {
     // ADR-001 (applicationId identity): ScribbleX is an independent fork of NotallyX
-    // (upstream history dropped, distributed via GitHub Releases + F-Droid only, no
+    // (upstream history dropped, distributed via GitHub Releases only, no
     // GMS). We adopt a NEW applicationId `com.scribblex.app` so the fork is its own
     // app with its own update path. Consequence: existing NotallyX users cannot
     // upgrade in place — they must export a backup from NotallyX and import it in
